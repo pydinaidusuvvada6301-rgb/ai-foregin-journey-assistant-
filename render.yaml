@@ -1,0 +1,56 @@
+# ==============================================================================
+# VisaVoyage AI / Foreign Journey Advisor - Render Blueprint
+# Automatically provisions both the Backend API and Frontend Static Site on Render
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Express / TypeScript Backend Web Service
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: visavoyage-backend
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: CLIENT_URL
+        value: https://visavoyage-frontend.onrender.com
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+  # ----------------------------------------------------------------------------
+  # 2. React / Vite Frontend Static Site
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: visavoyage-frontend
+    runtime: static
+    plan: free
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://visavoyage-backend.onrender.com/api
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

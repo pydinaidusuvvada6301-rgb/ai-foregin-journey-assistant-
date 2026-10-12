@@ -9,7 +9,22 @@ import type {
   UserProfile
 } from '../types/index.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+// Safe normalization for production hosting (Render, Vercel, etc.)
+function normalizeApiBaseUrl(url: string): string {
+  let cleaned = url.trim();
+  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = `https://${cleaned}`;
+  }
+  cleaned = cleaned.replace(/\/$/, '');
+  if (!cleaned.endsWith('/api')) {
+    cleaned = `${cleaned}/api`;
+  }
+  return cleaned;
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(rawBaseUrl);
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
