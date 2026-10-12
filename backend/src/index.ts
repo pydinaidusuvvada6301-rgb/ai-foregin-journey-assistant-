@@ -25,27 +25,9 @@ app.use(helmet({
 }));
 
 // 2. Cross-Origin Resource Sharing
-const allowedOrigins = [
-  clientUrl.trim().replace(/\/$/, ''),
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173'
-];
-
+// Allow requests from all origins (Vercel, Render, local dev) with credential support
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const cleanOrigin = origin.trim().replace(/\/$/, '');
-    if (
-      allowedOrigins.includes(cleanOrigin) ||
-      cleanOrigin.endsWith('.onrender.com') ||
-      cleanOrigin.endsWith('.vercel.app') ||
-      process.env.NODE_ENV !== 'production'
-    ) {
-      return callback(null, true);
-    }
-    return callback(null, true);
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -67,6 +49,15 @@ const apiLimiter = rateLimit({
   }
 });
 app.use('/api', apiLimiter);
+
+// Root route for instant ping/status check
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'online',
+    message: 'VisaVoyage AI Backend API is active and running.',
+    healthEndpoint: '/api/health'
+  });
+});
 
 // 5. System Health & Integration Status Route
 app.get('/api/health', (req, res) => {
@@ -98,11 +89,12 @@ app.use('/api/profile', profileRoutes);
 app.use(errorHandler);
 
 // 8. Start HTTP Server
-app.listen(PORT, () => {
+const listenPort = Number(PORT) || 5000;
+app.listen(listenPort, '0.0.0.0', () => {
   console.log(`
 ======================================================
   ✈️  VisaVoyage AI - Backend Server Running
-  Port: ${PORT}
+  Port: ${listenPort} (bound to 0.0.0.0)
   Environment: ${process.env.NODE_ENV || 'development'}
   Client URL: ${clientUrl}
   Google GenAI (gemini-2.5-flash): ${isGeminiConfigured ? '🟢 Live API Key Active' : '🟡 Demo/Fallback Mode Active'}

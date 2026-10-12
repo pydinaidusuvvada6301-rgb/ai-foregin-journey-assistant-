@@ -6,7 +6,11 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BACKEND,FRONTEND\" --prefix-colors \"cyan,magenta\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
     "build:all": "cd backend && npm run build && cd ../frontend && npm run build",
+    "build": "cd backend && npm install && npm run build",
+    "start": "cd backend && npm run start",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset"
   },
