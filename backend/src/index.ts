@@ -9,6 +9,7 @@ import itineraryRoutes from './routes/itinerary.routes.js';
 import visaRoutes from './routes/visa.routes.js';
 import documentRoutes from './routes/document.routes.js';
 import profileRoutes from './routes/profile.routes.js';
+import authRoutes from './routes/auth.routes.js';
 import { errorHandler } from './middleware/errorHandler.middleware.js';
 import { isGeminiConfigured } from './services/gemini.service.js';
 import { isSupabaseConfigured } from './services/supabase.service.js';
@@ -69,7 +70,7 @@ app.get('/api/health', (req, res) => {
       strictSeparation: true,
       authProvider: 'Supabase GoTrue JWT',
       database: 'Supabase PostgreSQL (RLS)',
-      aiEngine: 'Google GenAI SDK (gemini-2.5-flash)'
+      aiEngine: 'Google GenAI SDK (gemini-3.8-flash)'
     },
     integrations: {
       geminiKeyConfigured: isGeminiConfigured,
@@ -79,6 +80,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // 6. Mount API Route Modules
+app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/itineraries', itineraryRoutes);
 app.use('/api/visa-checks', visaRoutes);
@@ -97,7 +99,7 @@ app.listen(listenPort, '0.0.0.0', () => {
   Port: ${listenPort} (bound to 0.0.0.0)
   Environment: ${process.env.NODE_ENV || 'development'}
   Client URL: ${clientUrl}
-  Google GenAI (gemini-2.5-flash): ${isGeminiConfigured ? '🟢 Live API Key Active' : '🟡 Demo/Fallback Mode Active'}
+  Google GenAI (gemini-3.8-flash): ${isGeminiConfigured ? '🟢 Live API Key Active' : '🟡 Demo/Fallback Mode Active'}
   Supabase PostgreSQL / RLS Auth: ${isSupabaseConfigured ? '🟢 Live Supabase Connected' : '🟡 Local Test Store Active'}
 ======================================================
   `);

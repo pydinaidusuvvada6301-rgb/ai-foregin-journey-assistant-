@@ -12,16 +12,34 @@ import type {
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 // Safe normalization for production hosting (Render, Vercel, etc.)
-function normalizeApiBaseUrl(url: string): string {
-  let cleaned = url.trim();
-  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+function normalizeApiBaseUrl(raw?: string): string {
+  const defaultUrl = 'http://localhost:5000/api';
+  if (!raw || typeof raw !== 'string') return defaultUrl;
+  let cleaned = raw.trim();
+  if (!cleaned) return defaultUrl;
+
+  // Handle relative paths e.g. "/api"
+  if (cleaned.startsWith('/')) {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      cleaned = `${window.location.origin}${cleaned}`;
+    } else {
+      cleaned = `http://localhost:5000${cleaned}`;
+    }
+  } else if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
     cleaned = `https://${cleaned}`;
   }
-  cleaned = cleaned.replace(/\/$/, '');
+
+  cleaned = cleaned.replace(/\/+$/, '');
   if (!cleaned.endsWith('/api')) {
     cleaned = `${cleaned}/api`;
   }
-  return cleaned;
+
+  try {
+    const test = new URL(cleaned);
+    return test.toString().replace(/\/+$/, '');
+  } catch (_e) {
+    return defaultUrl;
+  }
 }
 
 const API_BASE_URL = normalizeApiBaseUrl(rawBaseUrl);
@@ -87,6 +105,47 @@ export async function analyzeDocument(formData: FormData) {
   return response.data;
 }
 
+// Deep Gemini AI Integration Endpoints
+export async function chatWithCopilot(
+  messages: Array<{ role: string; content: string }>,
+  context?: { originCountry?: string; destination?: string; preferences?: string }
+) {
+  const response = await apiClient.post('/ai/chat', { messages, context });
+  return response.data;
+}
+
+export async function customizeItineraryDay(payload: {
+  destination: string;
+  dayNumber: number;
+  currentTheme?: string;
+  currentActivities: string[];
+  customizationInstruction: string;
+  budgetRange?: string;
+}) {
+  const response = await apiClient.post('/ai/customize-day', payload);
+  return response.data;
+}
+
+export async function generateEmergencyCard(payload: {
+  destination: string;
+  originCountry?: string;
+  medicalNotes?: string;
+}) {
+  const response = await apiClient.post('/ai/emergency-card', payload);
+  return response.data;
+}
+
+export async function generatePackingChecklist(payload: {
+  destination: string;
+  durationDays: number;
+  travelPurpose?: string;
+  seasonOrMonth?: string;
+}) {
+  const response = await apiClient.post('/ai/packing-checklist', payload);
+  return response.data;
+}
+
+
 // History & Persistence endpoints (RLS protected)
 export async function fetchItineraries(): Promise<TravelItineraryRecord[]> {
   const response = await apiClient.get('/itineraries');
@@ -125,5 +184,21 @@ export async function updateProfile(data: { full_name?: string; home_country?: s
 
 export async function checkSystemHealth() {
   const response = await apiClient.get('/health');
+  return response.data;
+}
+
+// User registration & auto-confirmation via backend admin engine
+export async function registerUserViaApi(data: {
+  email: string;
+  password: string;
+  fullName: string;
+  homeCountry: string;
+}) {
+  const response = await apiClient.post('/auth/register', data);
+  return response.data;
+}
+
+export async function autoConfirmEmailViaApi(email: string) {
+  const response = await apiClient.post('/auth/auto-confirm', { email });
   return response.data;
 }

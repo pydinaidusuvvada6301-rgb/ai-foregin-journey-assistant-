@@ -12,14 +12,16 @@ import {
   Copy,
   Check,
   PlaneTakeoff,
-  Landmark
+  Landmark,
+  Sparkles
 } from 'lucide-react';
 
 interface VisaCheckCardProps {
   result: VisaCheckResult;
+  onConsultCopilot?: () => void;
 }
 
-export const VisaCheckCard: React.FC<VisaCheckCardProps> = ({ result }) => {
+export const VisaCheckCard: React.FC<VisaCheckCardProps> = ({ result, onConsultCopilot }) => {
   const [checkedDocs, setCheckedDocs] = useState<Record<number, boolean>>({});
   const [copied, setCopied] = useState(false);
 
@@ -66,13 +68,25 @@ ${result.financialProofGuidelines}
           </div>
         </div>
 
-        <button
-          onClick={handleCopy}
-          className="self-start md:self-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
-        >
-          {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400" />}
-          {copied ? 'Copied' : 'Share Policy'}
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          {onConsultCopilot && (
+            <button
+              onClick={onConsultCopilot}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition-all shadow-glow-cyan"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Ask Copilot</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
+          >
+            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400" />}
+            {copied ? 'Copied' : 'Share Policy'}
+          </button>
+        </div>
       </div>
 
       {/* 4 Essential Immigration Metrics */}

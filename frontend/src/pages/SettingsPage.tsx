@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Copy,
   Check,
-  Server
+  Server,
+  RefreshCw
 } from 'lucide-react';
 import { ArchitectureBoundaryCard } from '../components/ArchitectureBoundaryCard.js';
 
@@ -28,11 +29,18 @@ export const SettingsPage: React.FC = () => {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [healthStatus, setHealthStatus] = useState<any>(null);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
-  useEffect(() => {
+  const fetchHealth = () => {
+    setIsCheckingHealth(true);
     checkSystemHealth()
       .then(data => setHealthStatus(data))
-      .catch(() => setHealthStatus({ status: 'offline' }));
+      .catch(() => setHealthStatus({ status: 'offline' }))
+      .finally(() => setIsCheckingHealth(false));
+  };
+
+  useEffect(() => {
+    fetchHealth();
   }, []);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -212,9 +220,21 @@ create policy "Users can perform CRUD on their own document checks" on public.do
         {/* Right Column: Security & System Integration Status */}
         <div className="space-y-6">
           <div className="glass-card p-6 border-slate-800 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" /> System Integration Status
-            </h3>
+            <div className="flex items-center justify-between pb-1">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> System Integration Status
+              </h3>
+              <button
+                type="button"
+                onClick={fetchHealth}
+                disabled={isCheckingHealth}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Refresh Status"
+              >
+                <RefreshCw className={`w-3 h-3 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+                <span>{isCheckingHealth ? 'Checking...' : 'Refresh'}</span>
+              </button>
+            </div>
 
             <div className="space-y-3 text-xs">
               {/* Backend Status */}
@@ -223,8 +243,25 @@ create policy "Users can perform CRUD on their own document checks" on public.do
                   <Server className="w-4 h-4 text-cyan-400" />
                   <span className="text-slate-300 font-medium">Express Backend</span>
                 </div>
-                <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Online
+                <span className={`font-semibold flex items-center gap-1.5 ${
+                  healthStatus?.status === 'healthy'
+                    ? 'text-emerald-400'
+                    : healthStatus?.status === 'offline'
+                    ? 'text-rose-400'
+                    : 'text-cyan-400'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    healthStatus?.status === 'healthy'
+                      ? 'bg-emerald-400'
+                      : healthStatus?.status === 'offline'
+                      ? 'bg-rose-400 animate-pulse'
+                      : 'bg-cyan-400 animate-ping'
+                  }`} />
+                  {healthStatus?.status === 'healthy'
+                    ? 'Online (Port 5000)'
+                    : healthStatus?.status === 'offline'
+                    ? 'Offline (Not Started)'
+                    : 'Verifying...'}
                 </span>
               </div>
 
@@ -232,15 +269,15 @@ create policy "Users can perform CRUD on their own document checks" on public.do
               <div className="p-3 rounded-xl bg-navy-950/80 border border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-cyan-400" />
-                  <span className="text-slate-300 font-medium">Gemini 2.5 Flash</span>
+                  <span className="text-slate-300 font-medium">Gemini 3.8 Flash</span>
                 </div>
-                <span className={`font-semibold flex items-center gap-1 ${
-                  healthStatus?.integrations?.geminiKeyConfigured ? 'text-emerald-400' : 'text-amber-400'
+                <span className={`font-semibold flex items-center gap-1.5 ${
+                  healthStatus?.integrations?.geminiKeyConfigured !== false ? 'text-emerald-400' : 'text-slate-400'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${
-                    healthStatus?.integrations?.geminiKeyConfigured ? 'bg-emerald-400' : 'bg-amber-400'
+                    healthStatus?.integrations?.geminiKeyConfigured !== false ? 'bg-emerald-400' : 'bg-slate-400'
                   }`} />
-                  {healthStatus?.integrations?.geminiKeyConfigured ? 'Live API Key' : 'Demo Mode'}
+                  {healthStatus?.integrations?.geminiKeyConfigured !== false ? 'Live API Key Connected' : 'Fallback Mode'}
                 </span>
               </div>
 
@@ -251,12 +288,12 @@ create policy "Users can perform CRUD on their own document checks" on public.do
                   <span className="text-slate-300 font-medium">Supabase RLS</span>
                 </div>
                 <span className={`font-semibold flex items-center gap-1 ${
-                  isSupabaseConfigured ? 'text-emerald-400' : 'text-amber-400'
+                  isSupabaseConfigured ? 'text-emerald-400' : 'text-slate-400'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${
-                    isSupabaseConfigured ? 'bg-emerald-400' : 'bg-amber-400'
+                    isSupabaseConfigured ? 'bg-emerald-400' : 'bg-slate-400'
                   }`} />
-                  {isSupabaseConfigured ? 'Connected' : 'Local Memory Store'}
+                  {isSupabaseConfigured ? 'Connected (PostgreSQL)' : 'Local Memory Store'}
                 </span>
               </div>
             </div>

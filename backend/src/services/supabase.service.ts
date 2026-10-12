@@ -110,6 +110,11 @@ const memoryStore: InMemoryStore = {
   documentChecks: []
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export function isRealSupabaseUser(userId: string): boolean {
+  return Boolean(isSupabaseConfigured && supabaseAdmin && UUID_REGEX.test(userId));
+}
+
 // Database Access Wrappers ensuring Row Level Security
 export async function saveItinerary(userId: string, data: {
   destination: string;
@@ -117,7 +122,7 @@ export async function saveItinerary(userId: string, data: {
   budget_range: string;
   itinerary_details: any;
 }) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data: record, error } = await supabaseAdmin
       .from('travel_itineraries')
       .insert({
@@ -152,7 +157,7 @@ export async function saveItinerary(userId: string, data: {
 }
 
 export async function getUserItineraries(userId: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data, error } = await supabaseAdmin
       .from('travel_itineraries')
       .select('*')
@@ -167,7 +172,7 @@ export async function getUserItineraries(userId: string) {
 }
 
 export async function deleteItinerary(userId: string, id: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { error } = await supabaseAdmin
       .from('travel_itineraries')
       .delete()
@@ -190,7 +195,7 @@ export async function saveVisaCheck(userId: string, data: {
   destination_country: string;
   visa_result: any;
 }) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data: record, error } = await supabaseAdmin
       .from('visa_checks')
       .insert({
@@ -219,7 +224,7 @@ export async function saveVisaCheck(userId: string, data: {
 }
 
 export async function getUserVisaChecks(userId: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data, error } = await supabaseAdmin
       .from('visa_checks')
       .select('*')
@@ -234,7 +239,7 @@ export async function getUserVisaChecks(userId: string) {
 }
 
 export async function deleteVisaCheck(userId: string, id: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { error } = await supabaseAdmin
       .from('visa_checks')
       .delete()
@@ -257,7 +262,7 @@ export async function saveDocumentCheck(userId: string, data: {
   file_name: string;
   analysis_result: any;
 }) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data: record, error } = await supabaseAdmin
       .from('document_checks')
       .insert({
@@ -286,7 +291,7 @@ export async function saveDocumentCheck(userId: string, data: {
 }
 
 export async function getUserDocumentChecks(userId: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data, error } = await supabaseAdmin
       .from('document_checks')
       .select('*')
@@ -301,7 +306,7 @@ export async function getUserDocumentChecks(userId: string) {
 }
 
 export async function getUserProfile(userId: string) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data, error } = await supabaseAdmin
       .from('profiles')
       .select('*')
@@ -321,7 +326,7 @@ export async function getUserProfile(userId: string) {
 }
 
 export async function upsertUserProfile(userId: string, updates: { full_name?: string; home_country?: string }) {
-  if (supabaseAdmin) {
+  if (isRealSupabaseUser(userId) && supabaseAdmin) {
     const { data, error } = await supabaseAdmin
       .from('profiles')
       .upsert({

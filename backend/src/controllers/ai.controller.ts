@@ -1,6 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { generateItineraryAI, checkVisaRequirementsAI, analyzeDocumentAI } from '../services/gemini.service.js';
+import {
+  generateItineraryAI,
+  checkVisaRequirementsAI,
+  analyzeDocumentAI,
+  chatWithGeminiAI,
+  customizeDayAI,
+  generateEmergencyCardAI,
+  generatePackingChecklistAI
+} from '../services/gemini.service.js';
 import { saveItinerary, saveVisaCheck, saveDocumentCheck } from '../services/supabase.service.js';
 
 import { itineraryInputSchema, visaCheckInputSchema } from '../schemas/travel.schema.js';
@@ -24,7 +32,7 @@ export async function generateItinerary(req: Request, res: Response, next: NextF
         itinerary_details: itineraryDetails
       });
     } catch (dbErr) {
-      console.warn('[AI Controller] DB save failed, returning result anyway:', dbErr);
+      console.log('[AI Controller] DB save fallback notification:', dbErr);
     }
 
     res.status(200).json({
@@ -122,3 +130,115 @@ export async function analyzeDocument(req: Request, res: Response, next: NextFun
     next(err);
   }
 }
+
+export async function chatWithCopilot(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { messages, context } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'messages array is required and must not be empty.'
+      });
+      return;
+    }
+
+    const result = await chatWithGeminiAI({ messages, context });
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function customizeItineraryDay(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const {
+      destination,
+      dayNumber,
+      currentTheme,
+      currentActivities,
+      customizationInstruction,
+      budgetRange
+    } = req.body;
+
+    if (!destination || !dayNumber || !customizationInstruction) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'destination, dayNumber, and customizationInstruction are required.'
+      });
+      return;
+    }
+
+    const result = await customizeDayAI({
+      destination,
+      dayNumber: Number(dayNumber),
+      currentTheme,
+      currentActivities: Array.isArray(currentActivities) ? currentActivities : [],
+      customizationInstruction,
+      budgetRange
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function generateEmergencyCard(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { destination, originCountry, medicalNotes } = req.body;
+    if (!destination) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'destination is required.'
+      });
+      return;
+    }
+
+    const result = await generateEmergencyCardAI({
+      destination,
+      originCountry,
+      medicalNotes
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function generatePackingChecklist(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { destination, durationDays, travelPurpose, seasonOrMonth } = req.body;
+    if (!destination) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'destination is required.'
+      });
+      return;
+    }
+
+    const result = await generatePackingChecklistAI({
+      destination,
+      durationDays: Number(durationDays) || 7,
+      travelPurpose: travelPurpose || 'Tourism',
+      seasonOrMonth
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+

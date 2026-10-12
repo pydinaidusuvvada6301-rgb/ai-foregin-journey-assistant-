@@ -113,3 +113,53 @@ export interface DocumentCheckRecord {
   analysis_result: DocumentAnalysisResult;
   created_at: string;
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'model';
+  content: string;
+  timestamp?: string;
+}
+
+export interface CustomizedDayResult {
+  day: number;
+  theme: string;
+  activities: string[];
+  customizationNotes: string;
+}
+
+export interface EmergencyPhrase {
+  english: string;
+  localTranslation: string;
+  phoneticPronunciation: string;
+}
+
+export interface EmergencyCardResult {
+  destination: string;
+  localLanguage: string;
+  emergencyNumbers: {
+    police: string;
+    ambulance: string;
+    touristHelp: string;
+  };
+  emergencyPhrases: EmergencyPhrase[];
+  consularAdvice: string;
+  criticalScamsAndWarnings: string[];
+}
+
+export interface PackingItem {
+  item: string;
+  isEssential: boolean;
+  reason: string;
+}
+
+export interface PackingCategory {
+  name: string;
+  items: PackingItem[];
+}
+
+export interface PackingChecklistResult {
+  destination: string;
+  seasonAdvice: string;
+  categories: PackingCategory[];
+}
+

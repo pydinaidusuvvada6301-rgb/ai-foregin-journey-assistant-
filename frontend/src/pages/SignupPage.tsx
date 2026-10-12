@@ -62,9 +62,21 @@ export const SignupPage: React.FC = () => {
         {/* Signup Card */}
         <div className="glass-card p-6 sm:p-8 space-y-6 border-slate-800">
           {errorMsg && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-              <span>{errorMsg}</span>
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                <span>{errorMsg}</span>
+              </div>
+              {errorMsg.toLowerCase().includes('already') && (
+                <div className="pt-1 border-t border-rose-500/20">
+                  <Link
+                    to="/login"
+                    className="text-xs font-bold text-cyan-400 hover:text-cyan-300 underline"
+                  >
+                    Go to Sign In Page →
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 

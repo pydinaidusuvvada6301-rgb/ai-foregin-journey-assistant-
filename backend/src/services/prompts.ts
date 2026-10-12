@@ -98,3 +98,78 @@ export const DOCUMENT_ANALYSIS_SCHEMA = {
     "recommendations"
   ]
 };
+
+export const CUSTOMIZE_DAY_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    day: { type: "NUMBER" },
+    theme: { type: "STRING" },
+    activities: { type: "ARRAY", items: { type: "STRING" } },
+    customizationNotes: { type: "STRING" }
+  },
+  required: ["day", "theme", "activities", "customizationNotes"]
+};
+
+export const EMERGENCY_CARD_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    destination: { type: "STRING" },
+    localLanguage: { type: "STRING" },
+    emergencyNumbers: {
+      type: "OBJECT",
+      properties: {
+        police: { type: "STRING" },
+        ambulance: { type: "STRING" },
+        touristHelp: { type: "STRING" }
+      },
+      required: ["police", "ambulance", "touristHelp"]
+    },
+    emergencyPhrases: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          english: { type: "STRING" },
+          localTranslation: { type: "STRING" },
+          phoneticPronunciation: { type: "STRING" }
+        },
+        required: ["english", "localTranslation", "phoneticPronunciation"]
+      }
+    },
+    consularAdvice: { type: "STRING" },
+    criticalScamsAndWarnings: { type: "ARRAY", items: { type: "STRING" } }
+  },
+  required: ["destination", "localLanguage", "emergencyNumbers", "emergencyPhrases", "consularAdvice", "criticalScamsAndWarnings"]
+};
+
+export const PACKING_CHECKLIST_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    destination: { type: "STRING" },
+    seasonAdvice: { type: "STRING" },
+    categories: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          items: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                item: { type: "STRING" },
+                isEssential: { type: "BOOLEAN" },
+                reason: { type: "STRING" }
+              },
+              required: ["item", "isEssential", "reason"]
+            }
+          }
+        },
+        required: ["name", "items"]
+      }
+    }
+  },
+  required: ["destination", "seasonAdvice", "categories"]
+};
+
