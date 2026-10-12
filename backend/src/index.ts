@@ -39,6 +39,7 @@ app.use(cors({
     if (
       allowedOrigins.includes(cleanOrigin) ||
       cleanOrigin.endsWith('.onrender.com') ||
+      cleanOrigin.endsWith('.vercel.app') ||
       process.env.NODE_ENV !== 'production'
     ) {
       return callback(null, true);
