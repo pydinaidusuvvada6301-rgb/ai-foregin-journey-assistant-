@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+*.env.local
+!.env.example
+!.env.template
+
+# Production Build
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+.vite/
+
+# Logs
+logs/
+*.log
+
+# IDE & OS
+.DS_Store
+Thumbs.db

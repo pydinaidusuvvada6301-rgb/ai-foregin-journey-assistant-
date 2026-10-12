@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+*.env.local
+!.env.example
+!.env.template
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Uploads & Temp files
+uploads/*
+!uploads/.gitkeep
+temp/
+tmp/
+
+# Logs
+logs/
+*.log
+
+# IDE & OS
+.DS_Store
+Thumbs.db
