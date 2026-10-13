@@ -78,11 +78,23 @@ export const ItineraryPage: React.FC = () => {
     } catch (err: any) {
       clearInterval(interval);
       console.error('Itinerary generation error:', err);
-      setErrorMsg(
+      let rawErr =
         err?.response?.data?.message ||
+        err?.response?.data?.error ||
         err?.message ||
-        'Failed to generate itinerary. Please try again.'
-      );
+        'Failed to generate itinerary. Please try again.';
+
+      if (
+        rawErr.includes('Failed to construct') ||
+        rawErr.includes('Invalid URL') ||
+        rawErr.includes('Network Error') ||
+        rawErr.includes('ECONNREFUSED')
+      ) {
+        rawErr =
+          'Unable to reach the backend AI service. Please ensure your backend is running or verify VITE_API_BASE_URL. You can also test all features with instant sample data by clicking "Launch Interactive Demo Mode" on the login screen.';
+      }
+
+      setErrorMsg(rawErr);
     } finally {
       setLoading(false);
     }

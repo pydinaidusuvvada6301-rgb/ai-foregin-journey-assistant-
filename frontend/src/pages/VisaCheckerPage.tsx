@@ -50,11 +50,23 @@ export const VisaCheckerPage: React.FC = () => {
       setResult(response.data);
     } catch (err: any) {
       console.error('Visa policy check error:', err);
-      setErrorMsg(
+      let rawErr =
         err?.response?.data?.message ||
+        err?.response?.data?.error ||
         err?.message ||
-        'Failed to retrieve visa policy report. Please try again.'
-      );
+        'Failed to retrieve visa policy report. Please try again.';
+
+      if (
+        rawErr.includes('Failed to construct') ||
+        rawErr.includes('Invalid URL') ||
+        rawErr.includes('Network Error') ||
+        rawErr.includes('ECONNREFUSED')
+      ) {
+        rawErr =
+          'Unable to reach the backend policy engine. Please verify that your backend service is running, or launch Interactive Demo Mode from the login page.';
+      }
+
+      setErrorMsg(rawErr);
     } finally {
       setLoading(false);
     }

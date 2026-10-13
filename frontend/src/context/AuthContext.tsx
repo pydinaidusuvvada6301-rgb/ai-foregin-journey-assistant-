@@ -134,6 +134,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             error: 'Invalid login credentials. If you haven\'t created an account with this email yet, click "Create an account" below or use Instant Demo Mode.'
           };
         }
+        if (error.message.toLowerCase().includes('invalid api key')) {
+          return {
+            error: 'Invalid API Key: The Supabase anonymous key configured in your deployment is invalid or corrupted. Please verify VITE_SUPABASE_ANON_KEY in your Vercel settings, or launch Instant Demo Mode to test immediately.'
+          };
+        }
         return { error: error.message };
       }
 

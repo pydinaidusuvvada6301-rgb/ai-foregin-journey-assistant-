@@ -16,7 +16,23 @@ function normalizeApiBaseUrl(raw?: string): string {
   const defaultUrl = 'http://localhost:5000/api';
   if (!raw || typeof raw !== 'string') return defaultUrl;
   let cleaned = raw.trim();
-  if (!cleaned) return defaultUrl;
+
+  // Strip surrounding quotes
+  if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+
+  // Reject placeholder values or strings containing invalid URL characters
+  if (
+    !cleaned ||
+    cleaned.includes('<') ||
+    cleaned.includes('>') ||
+    cleaned.includes('YOUR-RENDER-URL') ||
+    cleaned.includes('your-api') ||
+    cleaned.includes('placeholder')
+  ) {
+    return defaultUrl;
+  }
 
   // Handle relative paths e.g. "/api"
   if (cleaned.startsWith('/')) {

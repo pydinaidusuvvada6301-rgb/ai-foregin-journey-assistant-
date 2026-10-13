@@ -11,7 +11,17 @@ function sanitizeSupabaseUrl(rawUrl?: string): string {
     return FALLBACK_SUPABASE_URL;
   }
   let url = rawUrl.trim();
-  if (!url || url.includes('your-supabase-project') || url.includes('placeholder')) {
+  // Strip surrounding quotes
+  if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
+    url = url.slice(1, -1).trim();
+  }
+  if (
+    !url ||
+    url.includes('your-supabase-project') ||
+    url.includes('placeholder') ||
+    url.includes('<') ||
+    url.includes('>')
+  ) {
     return FALLBACK_SUPABASE_URL;
   }
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -30,10 +40,33 @@ function sanitizeAnonKey(rawKey?: string): string {
   if (!rawKey || typeof rawKey !== 'string') {
     return FALLBACK_SUPABASE_ANON_KEY;
   }
-  const key = rawKey.trim();
-  if (!key || key.includes('your-supabase-anon-key') || key.includes('placeholder')) {
+  let key = rawKey.trim();
+  // Strip surrounding quotes if pasted with quotes
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  if (
+    !key ||
+    key.includes('your-supabase-anon-key') ||
+    key.includes('placeholder') ||
+    key.includes('<') ||
+    key.includes('>')
+  ) {
     return FALLBACK_SUPABASE_ANON_KEY;
   }
+
+  // Handle accidental double-paste (e.g., prefix duplication like eyJhbGci...eyJhbGci...)
+  const secondJwtIndex = key.indexOf('eyJhbGci', 10);
+  if (secondJwtIndex !== -1) {
+    key = key.substring(secondJwtIndex);
+  }
+
+  // Validate JWT shape (3 dot-separated base64 segments)
+  const parts = key.split('.');
+  if (parts.length !== 3 || parts[0].length < 10 || parts[1].length < 10) {
+    return FALLBACK_SUPABASE_ANON_KEY;
+  }
+
   return key;
 }
 
