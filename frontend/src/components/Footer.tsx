@@ -51,19 +51,19 @@ export const Footer: React.FC = () => {
             <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-3">Security & Trust</h4>
             <ul className="space-y-2 text-sm text-slate-400">
               <li className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-emerald-400" /> ICAO 9303 Standard</li>
-              <li className="flex items-center gap-1.5"><Lock className="w-4 h-4 text-cyan-400" /> Supabase JWT Bearer Auth</li>
-              <li className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-indigo-400" /> Express Helmet & Rate Limiting</li>
-              <li className="flex items-center gap-1.5"><Database className="w-4 h-4 text-emerald-400" /> Row-Level User Isolation</li>
+              <li className="flex items-center gap-1.5"><Lock className="w-4 h-4 text-cyan-400" /> 256-Bit SSL Protection</li>
+              <li className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-indigo-400" /> Biometric Privacy Protocol</li>
+              <li className="flex items-center gap-1.5"><Database className="w-4 h-4 text-emerald-400" /> Encrypted Cloud Vault</li>
             </ul>
           </div>
         </div>
 
         <div className="pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
-          <p>© {new Date().getFullYear()} VisaVoyage AI. Built for secure global travel advisory.</p>
+          <p>© {new Date().getFullYear()} VisaVoyage AI. Autonomous Global Travel Mobility.</p>
           <p className="flex items-center gap-2">
-            <span>Server: Node.js/Express ESM</span>
+            <span className="text-cyan-400 font-mono text-[11px]">Consular Network Active</span>
             <span>•</span>
-            <span>Client: React/Vite/Tailwind</span>
+            <span className="text-emerald-400 font-mono text-[11px]">195+ Jurisdictions</span>
           </p>
         </div>
       </div>

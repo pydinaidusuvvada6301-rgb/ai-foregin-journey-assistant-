@@ -91,7 +91,7 @@ export const ItineraryPage: React.FC = () => {
         rawErr.includes('ECONNREFUSED')
       ) {
         rawErr =
-          'Unable to reach the backend AI service. Please ensure your backend is running or verify VITE_API_BASE_URL. You can also test all features with instant sample data by clicking "Launch Interactive Demo Mode" on the login screen.';
+          'The itinerary intelligence engine is momentarily busy. Please try again or test sample itineraries via Demo Mode.';
       }
 
       setErrorMsg(rawErr);

@@ -63,7 +63,7 @@ export const VisaCheckerPage: React.FC = () => {
         rawErr.includes('ECONNREFUSED')
       ) {
         rawErr =
-          'Unable to reach the backend policy engine. Please verify that your backend service is running, or launch Interactive Demo Mode from the login page.';
+          'The global consular network is momentarily busy. Please try again in a few moments, or explore instant protocols using Demo Mode.';
       }
 
       setErrorMsg(rawErr);

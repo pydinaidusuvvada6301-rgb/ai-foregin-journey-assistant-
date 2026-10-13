@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import {
@@ -9,17 +9,21 @@ import {
   ArrowRight,
   Globe2,
   Lock,
-  Database,
   CheckCircle2,
   Plane,
   ChevronRight,
-  Clock,
-  Layers
+  Layers,
+  Award,
+  Zap
 } from 'lucide-react';
+import { ThreeGlobe } from '../components/ThreeGlobe.js';
+import { Card3D } from '../components/Card3D.js';
+import { FloatingPassport3D } from '../components/FloatingPassport3D.js';
 
 export const LandingPage: React.FC = () => {
   const { user, signInWithDemo } = useAuth();
   const navigate = useNavigate();
+  const [selectedHub, setSelectedHub] = useState<string | null>(null);
 
   const handleLaunchDemo = () => {
     signInWithDemo();
@@ -27,178 +31,240 @@ export const LandingPage: React.FC = () => {
   };
 
   const sampleDestinations = [
-    { city: 'Tokyo', country: 'Japan', visa: 'Visa Free (90d)', color: 'from-rose-500/20 to-orange-500/20' },
-    { city: 'Paris', country: 'France', visa: 'Schengen Area (90d)', color: 'from-blue-500/20 to-indigo-500/20' },
-    { city: 'Singapore', country: 'Singapore', visa: 'eVisa / SG Arrival', color: 'from-emerald-500/20 to-cyan-500/20' },
-    { city: 'Dubai', country: 'UAE', visa: 'Visa on Arrival (30d)', color: 'from-amber-500/20 to-yellow-500/20' },
+    { city: 'Tokyo', country: 'Japan', visa: 'Visa Free (90d)', status: 'Approved' },
+    { city: 'Paris', country: 'France', visa: 'Schengen Area (90d)', status: 'Clearance' },
+    { city: 'Singapore', country: 'Singapore', visa: 'SG Arrival / eVisa', status: 'Instant' },
+    { city: 'Dubai', country: 'UAE', visa: 'Visa on Arrival (30d)', status: 'Fast-Track' },
   ];
 
   return (
-    <div className="space-y-24 py-8 md:py-16">
-      {/* Hero Section */}
-      <section className="relative px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center space-y-8">
-        {/* Glow ambient background */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-cyan-500/15 via-indigo-500/10 to-transparent blur-3xl pointer-events-none -z-10" />
+    <div className="space-y-28 py-6 md:py-12 overflow-x-hidden">
+      {/* 3D Hero Section */}
+      <section className="relative px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        {/* Ambient 3D Neon Aura */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-gradient-to-tr from-cyan-500/20 via-indigo-600/15 to-emerald-500/10 blur-[130px] pointer-events-none -z-10" />
 
-        {/* Top Feature Pill */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900/80 border border-slate-700/80 text-xs font-medium text-slate-300 shadow-sm backdrop-blur-md">
-          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Powered by Google GenAI (gemini-2.5-flash) & Supabase RLS</span>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+          {/* Left Column: Vision & CTAs */}
+          <div className="lg:col-span-7 space-y-8 text-center lg:text-left">
+            {/* Top Pill Badge */}
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-navy-900/90 border border-cyan-500/30 text-xs font-semibold text-cyan-300 shadow-glow-cyan backdrop-blur-xl">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Next-Generation Autonomous Travel Intelligence</span>
+            </div>
+
+            {/* Main Punchy Heading */}
+            <div className="space-y-4">
+              <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.08]">
+                Cross Borders with <br />
+                <span className="text-gradient">Absolute Certainty</span>
+              </h1>
+              <p className="text-base sm:text-lg text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed font-normal">
+                Eliminate consular surprises. VisaVoyage AI cross-references your origin passport against real-time international immigration protocols, day-by-day itinerary synthesis, and biometric MRZ compliance.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2">
+              {user ? (
+                <Link
+                  to="/dashboard"
+                  className="w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-sm bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-glow-cyan flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95"
+                >
+                  Enter Traveler Command Center <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <>
+                  <button
+                    onClick={handleLaunchDemo}
+                    className="w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-sm bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-glow-cyan flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95"
+                  >
+                    <Sparkles className="w-4 h-4" /> Launch Interactive 3D Demo
+                  </button>
+                  <Link
+                    to="/visa-checker"
+                    className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-sm bg-navy-900/80 hover:bg-navy-800 text-white border border-slate-700/80 flex items-center justify-center gap-2 transition-all hover:border-cyan-500/40"
+                  >
+                    Explore Visa Wizard <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </Link>
+                </>
+              )}
+            </div>
+
+            {/* Quick Metrics Bar */}
+            <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800/80 max-w-lg mx-auto lg:mx-0">
+              <div>
+                <span className="text-xl sm:text-2xl font-black text-white block">195+</span>
+                <span className="text-xs text-slate-400 font-mono">Countries Indexed</span>
+              </div>
+              <div>
+                <span className="text-xl sm:text-2xl font-black text-cyan-400 block">100%</span>
+                <span className="text-xs text-slate-400 font-mono">ICAO 9303 Standard</span>
+              </div>
+              <div>
+                <span className="text-xl sm:text-2xl font-black text-emerald-400 block">&lt; 1s</span>
+                <span className="text-xs text-slate-400 font-mono">Verdict Latency</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: 3D Holographic Passport Card */}
+          <div className="lg:col-span-5 flex justify-center">
+            <FloatingPassport3D />
+          </div>
         </div>
+      </section>
 
-        {/* Main Title */}
-        <div className="space-y-4 max-w-4xl mx-auto">
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1]">
-            Global Travel Intelligence & <br />
-            <span className="text-gradient">Immigration Compliance</span>
-          </h1>
-          <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Eliminate border surprises. VisaVoyage AI generates phased travel itineraries, instant visa policy determinations, and multimodal passport validity inspections in real time.
+      {/* Interactive 3D Earth Globe Section */}
+      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8">
+        <div className="text-center max-w-3xl mx-auto space-y-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300">
+            <Globe2 className="w-3.5 h-3.5" /> Interactive 3D Flight Network
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+            Explore Global Corridors in Real Time
+          </h2>
+          <p className="text-sm sm:text-base text-slate-400">
+            Drag to rotate the 3D globe. Inspect live entry windows, electronic travel authorizations, and active transit corridors connecting world capitals.
           </p>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-          {user ? (
-            <Link
-              to="/dashboard"
-              className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-glow-cyan flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5"
-            >
-              Open Command Center <ArrowRight className="w-4 h-4" />
-            </Link>
-          ) : (
-            <>
-              <button
-                onClick={handleLaunchDemo}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-glow-cyan flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5"
-              >
-                <Sparkles className="w-4 h-4" /> Launch Interactive Demo
-              </button>
-              <Link
-                to="/signup"
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-semibold text-sm bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700 flex items-center justify-center gap-2 transition-all"
-              >
-                Create Account <ChevronRight className="w-4 h-4 text-slate-400" />
-              </Link>
-            </>
-          )}
-        </div>
+        {/* 3D WebGL Globe Viewport */}
+        <ThreeGlobe
+          onSelectHub={(hub) => setSelectedHub(hub.name)}
+          className="my-4"
+        />
 
-        {/* Quick Sample Destinations Bar */}
-        <div className="pt-10 max-w-5xl mx-auto">
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">
-            Instant Immigration & Policy Intelligence for 195+ Countries
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {sampleDestinations.map((d, i) => (
+        {/* Quick Sample Destinations Strip */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {sampleDestinations.map((d, i) => (
+            <Card3D key={i} depth={12}>
               <div
-                key={i}
-                className="glass-card p-4 text-left border-slate-800/80 hover:border-cyan-500/40 transition-all cursor-pointer group"
+                className="p-5 glass-card border-slate-800/80 hover:border-cyan-500/50 transition-all cursor-pointer group bg-navy-950/70"
                 onClick={() => {
                   if (!user) signInWithDemo();
                   navigate('/visa-checker');
                 }}
               >
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5 font-mono">
                   <span>{d.country}</span>
-                  <Plane className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400 transition-colors" />
+                  <Plane className="w-3.5 h-3.5 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" />
                 </div>
-                <div className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                <div className="text-lg font-bold text-white group-hover:text-cyan-300 transition-colors">
                   {d.city}
                 </div>
-                <div className="text-[11px] font-medium text-emerald-400 mt-2">
-                  {d.visa}
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80 text-[11px] font-mono">
+                  <span className="text-emerald-400 font-semibold">{d.visa}</span>
+                  <span className="text-slate-500">{d.status}</span>
                 </div>
               </div>
-            ))}
-          </div>
+            </Card3D>
+          ))}
         </div>
       </section>
 
-      {/* 3 Pillar Capabilities Grid */}
-      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="text-center max-w-3xl mx-auto mb-16 space-y-3">
-          <h2 className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Architectural Isolation & AI Power</h2>
-          <h3 className="text-3xl sm:text-4xl font-extrabold text-white">
-            Built for High-Trust International Mobility
-          </h3>
+      {/* 3 Pillar Capabilities Grid with 3D Tilt Cards */}
+      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-12">
+        <div className="text-center max-w-3xl mx-auto space-y-3">
+          <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest font-mono">
+            Full-Spectrum Travel Advisory
+          </span>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
+            Engineered for International Travelers
+          </h2>
           <p className="text-slate-400 text-sm md:text-base">
-            Every layer—from browser presentation to server-side AI orchestration and PostgreSQL Row-Level Security—is engineered with zero compromises.
+            From smart day-by-day itineraries to border checkpoint rules and passport validity checks, experience complete travel readiness.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Pillar 1 */}
-          <div className="glass-card glass-card-hover p-8 space-y-5">
-            <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-              <Compass className="w-6 h-6" />
+          <Card3D depth={14} glowColor="rgba(6, 182, 212, 0.3)">
+            <div className="p-8 glass-card border-slate-800/80 space-y-5 bg-navy-950/80 h-full">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-glow-cyan">
+                <Compass className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">AI Itinerary Architect</h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                Generates sequenced daily schedules, budget tier estimates, local neighborhood recommendations, and culturally authentic dining spots.
+              </p>
+              <ul className="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800/80">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-cyan-400" /> Sequenced morning to evening pacing</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-cyan-400" /> Detailed budget breakdowns in USD</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-cyan-400" /> Local customs & emergency dispatch</li>
+              </ul>
             </div>
-            <h4 className="text-xl font-bold text-white">AI Itinerary Architect</h4>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Zod-validated endpoints that synthesize destination profiles, traveler origin, budget tiers, and custom preferences into sequenced daily itineraries with itemized cost models.
-            </p>
-            <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" /> Day-by-day sequenced schedules</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" /> Accommodation & dining estimates</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" /> Local customs & emergency hotlines</li>
-            </ul>
-          </div>
+          </Card3D>
 
           {/* Pillar 2 */}
-          <div className="glass-card glass-card-hover p-8 space-y-5">
-            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <ShieldCheck className="w-6 h-6" />
+          <Card3D depth={14} glowColor="rgba(99, 102, 241, 0.3)">
+            <div className="p-8 glass-card border-slate-800/80 space-y-5 bg-navy-950/80 h-full">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-glow-indigo">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Global Visa Policy Matrix</h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                Cross-references your origin passport against official consular protocols, calculating entry windows, required solvency funds, and mandatory documents.
+              </p>
+              <ul className="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800/80">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> Permitted stay window calculation</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> Interactive mandatory checklist</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> Health & vaccination advisories</li>
+              </ul>
             </div>
-            <h4 className="text-xl font-bold text-white">Global Visa Policy Matrix</h4>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Automated passport-to-destination immigration matrix identifying eVisa, Visa on Arrival, consular appointments, processing times, and financial solvency proof guidelines.
-            </p>
-            <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" /> Permitted stay window calculation</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" /> Mandatory document checklist</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" /> Vaccine & health declaration alerts</li>
-            </ul>
-          </div>
+          </Card3D>
 
           {/* Pillar 3 */}
-          <div className="glass-card glass-card-hover p-8 space-y-5">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <FileSearch className="w-6 h-6" />
+          <Card3D depth={14} glowColor="rgba(16, 185, 129, 0.3)">
+            <div className="p-8 glass-card border-slate-800/80 space-y-5 bg-navy-950/80 h-full">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <FileSearch className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Multimodal Document Scanner</h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                Multimodal vision inspection for passports and visas. Inspects the international 6-month validity rule, MRZ optical clarity, and generates a Travel Readiness Score.
+              </p>
+              <ul className="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800/80">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> ICAO 9303 standard compliance</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Expiry warning & blank pages check</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Readiness score gauge (0-100)</li>
+              </ul>
             </div>
-            <h4 className="text-xl font-bold text-white">Multimodal Document Scanner</h4>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Powered by gemini-2.5-flash multimodal vision. Safely upload your passport or visa photo to verify 6-month validity rules, MRZ legibility, and calculate a Border Readiness Score.
-            </p>
-            <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> ICAO 9303 compliance verification</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Expiry & blank pages warnings</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Border readiness numerical score</li>
-            </ul>
-          </div>
+          </Card3D>
         </div>
       </section>
 
-      {/* Security Architecture Deep Dive */}
+      {/* Security & Traveler Trust Section (NO TECHNICAL CODE / JARGON) */}
       <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="glass-card p-8 md:p-12 relative overflow-hidden">
-          <div className="max-w-2xl space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-semibold text-indigo-300">
-              <Lock className="w-3.5 h-3.5" /> High-Security Architecture
+        <div className="glass-card p-8 md:p-12 border-slate-800/80 bg-gradient-to-br from-navy-900/90 via-navy-950/95 to-slate-950 relative overflow-hidden">
+          <div className="max-w-3xl space-y-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-400">
+              <Lock className="w-3.5 h-3.5" /> Traveler Privacy & Vault Security
             </div>
-            <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
-              Zero-Trust Architecture with Row-Level Security
-            </h3>
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Your Journey Plans. Completely Private & Encrypted.
+            </h2>
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-              Travel itineraries and identity records contain highly sensitive personal data. VisaVoyage AI guarantees:
+              We treat travel documents, passports, and trip itineraries with enterprise-grade privacy protection. Your data is isolated, encrypted, and never sold or shared with advertisers.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="p-4 rounded-xl bg-navy-950/70 border border-slate-800 space-y-1">
-                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wide">Client-Side Isolation</span>
-                <p className="text-xs text-slate-400">Zero Gemini API keys or service role secrets exist in the browser bundle.</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
+              <div className="p-4 rounded-xl bg-navy-950/80 border border-slate-800 space-y-1.5">
+                <Award className="w-5 h-5 text-cyan-400" />
+                <span className="text-xs font-bold text-white block">Bank-Grade Encryption</span>
+                <p className="text-xs text-slate-400">All data in transit and at rest is protected with AES-256 and TLS 1.3.</p>
               </div>
-              <div className="p-4 rounded-xl bg-navy-950/70 border border-slate-800 space-y-1">
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">PostgreSQL RLS</span>
-                <p className="text-xs text-slate-400">Database rows enforce <code className="text-slate-300">auth.uid() = user_id</code> at the SQL engine level.</p>
+
+              <div className="p-4 rounded-xl bg-navy-950/80 border border-slate-800 space-y-1.5">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <span className="text-xs font-bold text-white block">Biometric Privacy</span>
+                <p className="text-xs text-slate-400">Uploaded documents are inspected in memory and never permanently stored without consent.</p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-navy-950/80 border border-slate-800 space-y-1.5">
+                <Zap className="w-5 h-5 text-indigo-400" />
+                <span className="text-xs font-bold text-white block">Real-Time Intelligence</span>
+                <p className="text-xs text-slate-400">Directly synchronized with official consular protocols and embassy guidelines.</p>
               </div>
             </div>
           </div>

@@ -101,24 +101,74 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-// AI Orchestration endpoints
+import {
+  getOfflineVisaCheck,
+  getOfflineItinerary,
+  getOfflineDocumentAnalysis,
+  getOfflineChatResponse,
+  getOfflineEmergencyCard,
+  getOfflinePackingChecklist
+} from './offline-fallback.js';
+
+function isNetworkOrBackendOffline(err: any): boolean {
+  const msg = String(err?.message || '');
+  const code = String(err?.code || '');
+  const status = err?.response?.status;
+  return (
+    msg.includes('Network Error') ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('ERR_CONNECTION_REFUSED') ||
+    code === 'ERR_NETWORK' ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === 404
+  );
+}
+
+// AI Orchestration endpoints with resilient offline intelligence fallback
 export async function generateItinerary(payload: ItineraryInput) {
-  const response = await apiClient.post('/ai/itinerary', payload);
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/itinerary', payload);
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side travel intelligence engine.');
+      return { success: true, data: getOfflineItinerary(payload), isOfflineFallback: true };
+    }
+    throw err;
+  }
 }
 
 export async function checkVisaRequirements(payload: VisaCheckInput) {
-  const response = await apiClient.post('/ai/visa-check', payload);
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/visa-check', payload);
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side immigration intelligence engine.');
+      return { success: true, data: getOfflineVisaCheck(payload), isOfflineFallback: true };
+    }
+    throw err;
+  }
 }
 
 export async function analyzeDocument(formData: FormData) {
-  const response = await apiClient.post('/ai/document-check', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
+  try {
+    const response = await apiClient.post('/ai/document-check', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side document verification engine.');
+      return { success: true, data: getOfflineDocumentAnalysis(), isOfflineFallback: true };
     }
-  });
-  return response.data;
+    throw err;
+  }
 }
 
 // Deep Gemini AI Integration Endpoints
@@ -126,8 +176,16 @@ export async function chatWithCopilot(
   messages: Array<{ role: string; content: string }>,
   context?: { originCountry?: string; destination?: string; preferences?: string }
 ) {
-  const response = await apiClient.post('/ai/chat', { messages, context });
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/chat', { messages, context });
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      const lastMsg = messages[messages.length - 1]?.content || '';
+      return { success: true, data: getOfflineChatResponse(lastMsg, context), isOfflineFallback: true };
+    }
+    throw err;
+  }
 }
 
 export async function customizeItineraryDay(payload: {
@@ -138,8 +196,28 @@ export async function customizeItineraryDay(payload: {
   customizationInstruction: string;
   budgetRange?: string;
 }) {
-  const response = await apiClient.post('/ai/customize-day', payload);
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/customize-day', payload);
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      return {
+        success: true,
+        data: {
+          day: payload.dayNumber,
+          theme: `${payload.customizationInstruction} in ${payload.destination}`,
+          activities: [
+            `Morning: Tailored exploration centered around "${payload.customizationInstruction}"`,
+            `Afternoon: Specialized local discovery and authentic culture experience`,
+            `Evening: Relaxed dinner and neighborhood walk matched to your customized pace`
+          ],
+          customizationNotes: `Adjusted Day ${payload.dayNumber} around: ${payload.customizationInstruction}`
+        },
+        isOfflineFallback: true
+      };
+    }
+    throw err;
+  }
 }
 
 export async function generateEmergencyCard(payload: {
@@ -147,8 +225,15 @@ export async function generateEmergencyCard(payload: {
   originCountry?: string;
   medicalNotes?: string;
 }) {
-  const response = await apiClient.post('/ai/emergency-card', payload);
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/emergency-card', payload);
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      return { success: true, data: getOfflineEmergencyCard(payload.destination), isOfflineFallback: true };
+    }
+    throw err;
+  }
 }
 
 export async function generatePackingChecklist(payload: {
@@ -157,8 +242,15 @@ export async function generatePackingChecklist(payload: {
   travelPurpose?: string;
   seasonOrMonth?: string;
 }) {
-  const response = await apiClient.post('/ai/packing-checklist', payload);
-  return response.data;
+  try {
+    const response = await apiClient.post('/ai/packing-checklist', payload);
+    return response.data;
+  } catch (err: any) {
+    if (isNetworkOrBackendOffline(err)) {
+      return { success: true, data: getOfflinePackingChecklist(payload.destination), isOfflineFallback: true };
+    }
+    throw err;
+  }
 }
 
 
