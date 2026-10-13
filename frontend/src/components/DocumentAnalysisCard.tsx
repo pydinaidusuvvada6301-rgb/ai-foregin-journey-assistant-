@@ -164,6 +164,17 @@ export const DocumentAnalysisCard: React.FC<DocumentAnalysisCardProps> = ({ anal
           ))}
         </ul>
       </div>
+
+      {/* Statutory Heuristic Disclaimer (Phase 5 Requirement) */}
+      <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-700/80 text-[11px] text-slate-400 space-y-1.5">
+        <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+          <ShieldCheck className="w-4 h-4 shrink-0 text-amber-400" />
+          <span>Non-Governmental Heuristic Assessment Notice</span>
+        </div>
+        <p className="leading-relaxed">
+          This document analysis is an AI-assisted readiness evaluation based on ICAO 9303 formatting conventions and optical clarity. <strong>This does not constitute official government authentication, legal document verification, or a guarantee of border admittance.</strong> Physical inspection and validation remain exclusively within the purview of sovereign immigration officers.
+        </p>
+      </div>
     </div>
   );
 };

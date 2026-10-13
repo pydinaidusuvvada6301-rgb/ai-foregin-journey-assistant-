@@ -27,11 +27,12 @@ import {
   Sparkles,
   Layers,
   Loader2,
+  AlertCircle,
   X
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isDemoUser } = useAuth();
   const navigate = useNavigate();
 
   const [itineraries, setItineraries] = useState<TravelItineraryRecord[]>([]);
@@ -91,6 +92,18 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-10">
+      {/* Unconfirmed Email Alert Notice */}
+      {!user?.emailConfirmed && !isDemoUser && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Email Verification Advisory:</strong> A verification link was sent to <strong className="text-white">{user?.email}</strong>. Please confirm your email address to enable permanent account recovery and security alerts.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="glass-card p-6 md:p-8 relative overflow-hidden border-slate-800">
         <div className="absolute top-0 right-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
@@ -137,6 +150,71 @@ export const DashboardPage: React.FC = () => {
               <FileSearch className="w-4 h-4 text-slate-400" /> Scan Document
             </Link>
           </div>
+        </div>
+      </div>
+
+      {/* Traveler Preferences & Active Corridors */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Profile Travel Intent */}
+        <div className="glass-card p-5 border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-cyan-400" /> Planned Journey Intent
+            </span>
+            <Link to="/settings" className="text-[11px] text-cyan-400 hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between py-1 border-b border-slate-800/80">
+              <span className="text-slate-400">Target Destination:</span>
+              <span className="text-white font-semibold">{user?.destinationPreference || 'Not set yet'}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-800/80">
+              <span className="text-slate-400">Travel Purpose:</span>
+              <span className="text-cyan-300 font-semibold">{user?.travelPurpose || 'Tourism'}</span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span className="text-slate-400">Target Departure:</span>
+              <span className="text-slate-300 font-medium">{user?.intendedDepartureDate || 'Flexible timeline'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recently Viewed Corridors */}
+        <div className="glass-card p-5 border-slate-800 space-y-3 md:col-span-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Compass className="w-3.5 h-3.5 text-indigo-400" /> Recently Viewed Destinations
+            </span>
+            <span className="text-[11px] text-slate-400">Auto-saved session history</span>
+          </div>
+          {user?.recentlyViewedDestinations && user.recentlyViewedDestinations.length > 0 ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {user.recentlyViewedDestinations.map((dest, i) => (
+                <div
+                  key={i}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex items-center gap-2 group hover:border-cyan-500/40 transition-all"
+                >
+                  <span className="text-white font-medium">{dest}</span>
+                  <Link
+                    to={`/visa-checker?destination=${encodeURIComponent(dest)}`}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold"
+                    title="Check Visa"
+                  >
+                    Visa →
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-2 text-xs text-slate-400 flex items-center gap-2">
+              <span>No recent destinations viewed. Explore countries via the</span>
+              <Link to="/visa-checker" className="text-cyan-400 hover:underline">Visa Checker</Link>
+              <span>or</span>
+              <Link to="/itinerary" className="text-indigo-400 hover:underline">AI Itinerary Architect</Link>.
+            </div>
+          )}
         </div>
       </div>
 
@@ -187,6 +265,153 @@ export const DashboardPage: React.FC = () => {
           <p className="text-[11px] text-slate-400">Supabase RLS active</p>
         </div>
       </div>
+
+      {/* Journey Readiness & Application Milestones Tracker */}
+      <div className="glass-card p-6 border-slate-800 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400" /> Journey Milestones & Consular Readiness
+            </h2>
+            <p className="text-xs text-slate-400">Preparation trajectory for {user?.destinationPreference || 'Upcoming International Journey'}</p>
+          </div>
+          <Link
+            to="/document-analyzer"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all flex items-center gap-1.5 w-fit"
+          >
+            <FileSearch className="w-3.5 h-3.5" /> Open Document Checklist
+          </Link>
+        </div>
+
+        {/* 5-Phase Horizontal Milestone Timeline */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {/* Phase 1 */}
+          <div className="bg-navy-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400">Phase 01</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${docChecks.length > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                {docChecks.length > 0 ? 'Verified' : 'Pending'}
+              </span>
+            </div>
+            <h4 className="text-xs font-bold text-white">Passport Validity</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Verify 6-month validity & undamaged ICAO MRZ machine-readable zone.
+            </p>
+          </div>
+
+          {/* Phase 2 */}
+          <div className="bg-navy-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400">Phase 02</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${visaChecks.length > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                {visaChecks.length > 0 ? 'Assessed' : 'In Progress'}
+              </span>
+            </div>
+            <h4 className="text-xs font-bold text-white">Visa Policy Review</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Evaluate visa-free, eVisa, ETA, or consular submission rules.
+            </p>
+          </div>
+
+          {/* Phase 3 */}
+          <div className="bg-navy-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400">Phase 03</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">
+                Active
+              </span>
+            </div>
+            <h4 className="text-xs font-bold text-white">Document Checklist</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Assemble bank statements, employment letters & travel insurance.
+            </p>
+          </div>
+
+          {/* Phase 4 */}
+          <div className="bg-navy-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400">Phase 04</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${itineraries.length > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                {itineraries.length > 0 ? 'Generated' : 'Pending'}
+              </span>
+            </div>
+            <h4 className="text-xs font-bold text-white">Itinerary Logistics</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Plan day-to-day route, transit connectivity, and budget allocation.
+            </p>
+          </div>
+
+          {/* Phase 5 */}
+          <div className="bg-navy-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400">Phase 05</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                Departure
+              </span>
+            </div>
+            <h4 className="text-xs font-bold text-white">Border Entry Pack</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Print boarding passes, offline embassy hotlines & arrival customs slips.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* First-Time Traveler Onboarding Flow (Shown for new accounts) */}
+      {!loading && itineraries.length === 0 && visaChecks.length === 0 && (
+        <div className="glass-card p-6 border-cyan-500/30 bg-gradient-to-r from-navy-950 via-slate-900 to-navy-950 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-cyan-500/20 text-cyan-300">
+                <Sparkles className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-base font-bold text-white">First-Time Setup: 3 Steps to Launch Your Journey</h3>
+                <p className="text-xs text-slate-400">Complete these initial steps to establish your traveler intelligence dossier.</p>
+              </div>
+            </div>
+            <span className="glass-pill text-[11px] text-cyan-400">Step 1 of 3</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+            <Link
+              to="/visa-checker"
+              className="p-4 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 transition-all flex flex-col justify-between group"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase">Step 01</span>
+                <h4 className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors">Check Visa Eligibility</h4>
+                <p className="text-xs text-slate-400">Evaluate sovereign visa rules, permitted length of stay, and embassy links.</p>
+              </div>
+              <span className="mt-3 text-xs font-semibold text-cyan-400 flex items-center gap-1">Launch Wizard →</span>
+            </Link>
+
+            <Link
+              to="/document-analyzer"
+              className="p-4 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/40 transition-all flex flex-col justify-between group"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase">Step 02</span>
+                <h4 className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">Prepare Documents</h4>
+                <p className="text-xs text-slate-400">Review required documents, track readiness, and scan passport MRZ.</p>
+              </div>
+              <span className="mt-3 text-xs font-semibold text-indigo-400 flex items-center gap-1">Open Checklist →</span>
+            </Link>
+
+            <Link
+              to="/itinerary"
+              className="p-4 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-purple-500/40 transition-all flex flex-col justify-between group"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono font-bold text-purple-400 uppercase">Step 03</span>
+                <h4 className="text-sm font-bold text-white group-hover:text-purple-300 transition-colors">Generate AI Itinerary</h4>
+                <p className="text-xs text-slate-400">Architect phased day-by-day plans, activity schedules, and itemized cost models.</p>
+              </div>
+              <span className="mt-3 text-xs font-semibold text-purple-400 flex items-center gap-1">Generate Route →</span>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Split: Itineraries & Visa Checks */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

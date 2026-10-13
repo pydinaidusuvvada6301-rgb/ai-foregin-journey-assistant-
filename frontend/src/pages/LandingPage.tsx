@@ -24,6 +24,8 @@ export const LandingPage: React.FC = () => {
   const { user, signInWithDemo } = useAuth();
   const navigate = useNavigate();
   const [selectedHub, setSelectedHub] = useState<string | null>(null);
+  const [corridorPassport, setCorridorPassport] = useState('United States');
+  const [corridorDestination, setCorridorDestination] = useState('Japan');
 
   const handleLaunchDemo = () => {
     signInWithDemo();
@@ -89,6 +91,58 @@ export const LandingPage: React.FC = () => {
                   </Link>
                 </>
               )}
+            </div>
+
+            {/* Live Corridor Quick-Check Bar */}
+            <div className="p-4 rounded-2xl bg-navy-900/80 border border-cyan-500/30 backdrop-blur-xl shadow-lg shadow-cyan-500/5 max-w-xl mx-auto lg:mx-0">
+              <div className="flex items-center gap-2 mb-3 text-xs font-semibold text-cyan-300">
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Instant Bilateral Corridor Checker</span>
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  navigate('/visa-checker', {
+                    state: { origin: corridorPassport, destination: corridorDestination }
+                  });
+                }}
+                className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center"
+              >
+                <div className="sm:col-span-5">
+                  <label className="block text-[10px] font-mono uppercase text-slate-400 mb-1">Passport Origin</label>
+                  <select
+                    value={corridorPassport}
+                    onChange={(e) => setCorridorPassport(e.target.value)}
+                    className="w-full bg-navy-950/90 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                  >
+                    {['United States', 'United Kingdom', 'Canada', 'Australia', 'Germany', 'France', 'India', 'Japan', 'Singapore'].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-5">
+                  <label className="block text-[10px] font-mono uppercase text-slate-400 mb-1">Destination Country</label>
+                  <select
+                    value={corridorDestination}
+                    onChange={(e) => setCorridorDestination(e.target.value)}
+                    className="w-full bg-navy-950/90 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                  >
+                    {['Japan', 'France (Schengen)', 'Singapore', 'United Kingdom', 'Thailand', 'United Arab Emirates', 'Australia', 'United States'].map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2 sm:self-end">
+                  <button
+                    type="submit"
+                    className="w-full py-2 px-3 bg-cyan-500 hover:bg-cyan-400 text-navy-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1 transition-all shadow-glow-cyan"
+                    title="Check corridor rules"
+                  >
+                    <span>Check</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </form>
             </div>
 
             {/* Quick Metrics Bar */}
@@ -266,6 +320,64 @@ export const LandingPage: React.FC = () => {
                 <span className="text-xs font-bold text-white block">Real-Time Intelligence</span>
                 <p className="text-xs text-slate-400">Directly synchronized with official consular protocols and embassy guidelines.</p>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* High-Conversion Closing Call-to-Action Section */}
+      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pb-8">
+        <div className="relative rounded-3xl overflow-hidden border border-cyan-500/40 bg-gradient-to-b from-navy-900/90 via-[#0b1222] to-navy-950 p-8 sm:p-14 text-center shadow-2xl shadow-cyan-950/50">
+          {/* Ambient Glowing Halos */}
+          <div className="absolute -top-32 -left-32 w-80 h-80 bg-cyan-500/20 rounded-full blur-[100px] pointer-events-none" />
+          <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-indigo-500/20 rounded-full blur-[100px] pointer-events-none" />
+
+          <div className="relative z-10 max-w-3xl mx-auto space-y-6">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-xs font-bold text-cyan-300 shadow-glow-cyan">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span>Official Consular Compliance • 100% Free Instant Access</span>
+            </div>
+
+            <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+              Ready to Cross Borders with <br className="hidden sm:inline" />
+              <span className="text-gradient">Absolute Certainty?</span>
+            </h2>
+
+            <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
+              Eliminate airport boarding rejections, verify bilateral visa exemptions against official sovereign databases, and generate custom day-by-day itineraries tailored to your passport.
+            </p>
+
+            {/* Conversion Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+              <button
+                onClick={handleLaunchDemo}
+                className="w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-navy-950 shadow-glow-cyan flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95"
+              >
+                <Sparkles className="w-4 h-4 text-navy-950" />
+                <span>Launch Interactive 3D Demo</span>
+                <ArrowRight className="w-4 h-4 text-navy-950" />
+              </button>
+
+              <Link
+                to="/visa-checker"
+                className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-sm bg-slate-900/90 hover:bg-slate-800 text-white border border-slate-700/80 flex items-center justify-center gap-2 transition-all hover:border-cyan-500/40"
+              >
+                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                <span>Verify Visa Rules for 195+ Nations</span>
+              </Link>
+            </div>
+
+            {/* Reassurance Badges */}
+            <div className="flex flex-wrap items-center justify-center gap-6 pt-6 text-xs text-slate-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" /> No credit card required
+              </span>
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-cyan-400" /> Verified official government sources
+              </span>
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-indigo-400" /> PostgreSQl RLS encrypted vault
+              </span>
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { ShieldCheck, Cpu, Database, Lock, Plane } from 'lucide-react';
 
 export const Footer: React.FC = () => {
@@ -8,14 +9,14 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white">
+            <Link to="/" className="flex items-center gap-2.5 group w-fit">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white transition-transform group-hover:scale-105">
                 <Plane className="w-4 h-4 transform -rotate-45" />
               </div>
               <span className="text-base font-bold text-white tracking-tight">
                 VisaVoyage <span className="text-cyan-400 font-mono text-xs">AI</span>
               </span>
-            </div>
+            </Link>
             <p className="text-sm text-slate-400 max-w-md leading-relaxed">
               Autonomous foreign journey planning, immigration policy intelligence, and multimodal travel compliance assessment for international travelers and digital nomads.
             </p>
@@ -26,7 +27,7 @@ export const Footer: React.FC = () => {
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-900 border border-slate-800 text-slate-400">
                 <Cpu className="w-3 h-3 text-cyan-400" />
-                Gemini 2.5 Flash SDK
+                Gemini 3.8 Flash SDK
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-900 border border-slate-800 text-slate-400">
                 <Lock className="w-3 h-3 text-indigo-400" />
@@ -39,10 +40,10 @@ export const Footer: React.FC = () => {
           <div>
             <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-3">Core Modules</h4>
             <ul className="space-y-2 text-sm text-slate-400">
-              <li><a href="/itinerary" className="hover:text-cyan-400 transition-colors">AI Itinerary Planner</a></li>
-              <li><a href="/visa-checker" className="hover:text-cyan-400 transition-colors">Global Visa Policy Matrix</a></li>
-              <li><a href="/document-analyzer" className="hover:text-cyan-400 transition-colors">Passport & MRZ Scanner</a></li>
-              <li><a href="/dashboard" className="hover:text-cyan-400 transition-colors">Traveler Command Center</a></li>
+              <li><Link to="/itinerary" className="hover:text-cyan-400 transition-colors">AI Itinerary Planner</Link></li>
+              <li><Link to="/visa-checker" className="hover:text-cyan-400 transition-colors">Global Visa Policy Matrix</Link></li>
+              <li><Link to="/document-analyzer" className="hover:text-cyan-400 transition-colors">Passport & MRZ Scanner</Link></li>
+              <li><Link to="/dashboard" className="hover:text-cyan-400 transition-colors">Traveler Command Center</Link></li>
             </ul>
           </div>
 

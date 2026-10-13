@@ -17,7 +17,10 @@ import {
   Wand2,
   Check,
   RefreshCw,
-  X
+  X,
+  Plus,
+  Trash2,
+  Edit3
 } from 'lucide-react';
 import { customizeItineraryDay, generateEmergencyCard, generatePackingChecklist } from '../lib/api.js';
 
@@ -37,6 +40,12 @@ export const ItineraryResultCard: React.FC<ItineraryResultCardProps> = ({
   const [dailySchedule, setDailySchedule] = useState<DaySchedule[]>(initialItinerary.dailySchedule);
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [copied, setCopied] = useState(false);
+
+  // Editable Activities State (Phase 6)
+  const [editingActivityIdx, setEditingActivityIdx] = useState<number | null>(null);
+  const [editActivityText, setEditActivityText] = useState('');
+  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [newActivityText, setNewActivityText] = useState('');
 
   // Deep Gemini: Day Customizer State
   const [showCustomizer, setShowCustomizer] = useState(false);
@@ -163,6 +172,40 @@ ${initialItinerary.essentialTips.map(t => `* ${t}`).join('\n')}
 
   const togglePackingItem = (itemName: string) => {
     setCheckedItems(prev => ({ ...prev, [itemName]: !prev[itemName] }));
+  };
+
+  const handleDeleteActivity = (idx: number) => {
+    setDailySchedule(prev => prev.map(d => {
+      if (d.day === selectedDay) {
+        return { ...d, activities: d.activities.filter((_, i) => i !== idx) };
+      }
+      return d;
+    }));
+  };
+
+  const handleSaveEditActivity = (idx: number) => {
+    if (!editActivityText.trim()) return;
+    setDailySchedule(prev => prev.map(d => {
+      if (d.day === selectedDay) {
+        const next = [...d.activities];
+        next[idx] = editActivityText.trim();
+        return { ...d, activities: next };
+      }
+      return d;
+    }));
+    setEditingActivityIdx(null);
+  };
+
+  const handleAddActivity = () => {
+    if (!newActivityText.trim()) return;
+    setDailySchedule(prev => prev.map(d => {
+      if (d.day === selectedDay) {
+        return { ...d, activities: [...d.activities, newActivityText.trim()] };
+      }
+      return d;
+    }));
+    setNewActivityText('');
+    setShowAddActivity(false);
   };
 
 
@@ -393,13 +436,107 @@ ${initialItinerary.essentialTips.map(t => `* ${t}`).join('\n')}
 
             <div className="space-y-3 pt-2">
               {currentDaySchedule.activities.map((activity, idx) => (
-                <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/50 border border-slate-800/60">
-                  <Clock className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                  <p className="text-sm text-slate-200 leading-relaxed">
-                    {activity}
-                  </p>
+                <div
+                  key={idx}
+                  className="p-3 rounded-xl bg-slate-900/50 border border-slate-800/60 hover:border-slate-700 transition-all space-y-2 group"
+                >
+                  {editingActivityIdx === idx ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editActivityText}
+                        onChange={(e) => setEditActivityText(e.target.value)}
+                        className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-400"
+                        rows={2}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingActivityIdx(null)}
+                          className="px-3 py-1 text-xs text-slate-400 hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditActivity(idx)}
+                          className="px-3 py-1 bg-cyan-500 text-navy-950 font-bold text-xs rounded-lg shadow-glow-cyan"
+                        >
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <Clock className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
+                        <p className="text-sm text-slate-200 leading-relaxed">
+                          {activity}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingActivityIdx(idx);
+                            setEditActivityText(activity);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-cyan-300 rounded hover:bg-slate-800 transition-colors"
+                          title="Edit activity"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteActivity(idx)}
+                          className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-rose-500/10 transition-colors"
+                          title="Delete activity"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
+
+              {/* Add Custom Activity Form / Trigger */}
+              {showAddActivity ? (
+                <div className="p-3 rounded-xl bg-slate-900 border border-cyan-500/30 space-y-2 animate-fadeIn">
+                  <input
+                    type="text"
+                    value={newActivityText}
+                    onChange={(e) => setNewActivityText(e.target.value)}
+                    placeholder="Enter custom activity (e.g. Afternoon tea at Shibuya Sky observatory)"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-400"
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddActivity(false)}
+                      className="px-3 py-1 text-xs text-slate-400 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddActivity}
+                      className="px-3 py-1 bg-cyan-500 text-navy-950 font-bold text-xs rounded-lg"
+                    >
+                      Add Activity
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowAddActivity(true)}
+                  className="w-full py-2.5 rounded-xl border border-dashed border-slate-800 hover:border-cyan-500/40 text-xs font-semibold text-slate-400 hover:text-cyan-300 flex items-center justify-center gap-1.5 transition-all bg-slate-900/30"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Add Activity to Day {selectedDay}</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -456,6 +593,47 @@ ${initialItinerary.essentialTips.map(t => `* ${t}`).join('\n')}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Travel Preparation Reminders & Readiness Checklist */}
+      <div className="bg-slate-900/40 rounded-xl p-5 border border-slate-800/80">
+        <h4 className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-2 mb-3">
+          <Calendar className="w-4 h-4 text-indigo-400" /> Pre-Departure Readiness Checklist
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-navy-950/60 border border-slate-800 text-xs text-slate-300">
+            <span className="text-emerald-400 font-bold">✓</span>
+            <div>
+              <p className="font-semibold text-white">Passport Validity</p>
+              <p className="text-slate-400 text-[11px]">Verify minimum 6 months validity remaining beyond planned departure date.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-navy-950/60 border border-slate-800 text-xs text-slate-300">
+            <span className="text-emerald-400 font-bold">✓</span>
+            <div>
+              <p className="font-semibold text-white">Comprehensive Travel Insurance</p>
+              <p className="text-slate-400 text-[11px]">Ensure medical evacuation, repatriation, and flight cancellation coverage.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-navy-950/60 border border-slate-800 text-xs text-slate-300">
+            <span className="text-emerald-400 font-bold">✓</span>
+            <div>
+              <p className="font-semibold text-white">Currency & Zero-FX Cards</p>
+              <p className="text-slate-400 text-[11px]">Notify your bank of international travel; carry small local currency cash for transit.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Pricing Transparency & Statutory Booking Notice */}
+      <div className="rounded-xl p-4 bg-navy-950/90 border border-slate-800 text-xs text-slate-400 space-y-1.5 leading-relaxed">
+        <div className="flex items-center gap-2 text-slate-300 font-semibold">
+          <AlertCircle className="w-4 h-4 text-cyan-400 shrink-0" />
+          <span>Pricing & Booking Verification Notice</span>
+        </div>
+        <p>
+          All accommodation, transit, meal, and activity costs displayed above are <strong className="text-slate-200">heuristic algorithmic estimates</strong> modeled on seasonal median rates. VisaVoyage AI does not fabricate live flight inventory, hotel room bookings, or guaranteed ticketing availability. Real-time rates fluctuate based on carrier yield management, seasonal surcharges, and date selections. Verify final fares directly with licensed airline operators and accredited lodging providers prior to financial commitment.
+        </p>
       </div>
 
       {/* Emergency Safety Card Modal */}

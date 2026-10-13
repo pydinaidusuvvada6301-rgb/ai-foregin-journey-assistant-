@@ -51,6 +51,19 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
+// Dedicated stricter rate limit for sensitive authentication operations
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // limit each IP to 20 registration/confirmation attempts per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too Many Requests',
+    message: 'Too many authentication attempts. Please wait 15 minutes before trying again.'
+  }
+});
+app.use('/api/auth', authLimiter);
+
 // Root route for instant ping/status check
 app.get('/', (req, res) => {
   res.status(200).json({

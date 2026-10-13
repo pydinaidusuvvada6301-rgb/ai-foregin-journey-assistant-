@@ -49,7 +49,23 @@ export const VISA_CHECK_JSON_SCHEMA = {
     financialProofGuidelines: { type: "STRING" },
     healthAndVaccineMandates: { type: "ARRAY", items: { type: "STRING" } },
     importantAdvisories: { type: "ARRAY", items: { type: "STRING" } },
-    entryCheckpoints: { type: "STRING" }
+    entryCheckpoints: { type: "STRING" },
+    officialSources: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          authorityType: { type: "STRING" },
+          portalUrl: { type: "STRING" },
+          description: { type: "STRING" }
+        },
+        required: ["name", "authorityType"]
+      }
+    },
+    officialPortalUrl: { type: "STRING" },
+    verificationBadge: { type: "STRING" },
+    lastVerifiedDate: { type: "STRING" }
   },
   required: [
     "destinationCountry",

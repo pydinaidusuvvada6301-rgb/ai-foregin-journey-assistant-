@@ -119,7 +119,11 @@ router.post('/auto-confirm', async (req: Request, res: Response) => {
     const user = userList?.users?.find(u => u.email?.toLowerCase() === email.trim().toLowerCase());
 
     if (!user) {
-      res.status(404).json({ error: 'UserNotFound', message: 'No account found with this email.' });
+      // Do not disclose user presence to prevent account enumeration
+      res.status(200).json({
+        success: true,
+        message: 'If an unconfirmed account exists with this email, confirmation has been processed.'
+      });
       return;
     }
 
@@ -131,11 +135,11 @@ router.post('/auto-confirm', async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      message: 'Email successfully verified. You can now log in.'
+      message: 'If an unconfirmed account exists with this email, confirmation has been processed.'
     });
   } catch (err: any) {
     console.error('[Auth Routes] Auto-confirm error:', err);
-    res.status(500).json({ error: 'AutoConfirmFailed', message: err?.message || 'Failed to auto-confirm.' });
+    res.status(500).json({ error: 'AutoConfirmFailed', message: 'Unable to process confirmation at this time.' });
   }
 });
 

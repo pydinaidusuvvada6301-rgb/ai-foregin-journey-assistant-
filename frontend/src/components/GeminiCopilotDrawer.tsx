@@ -6,14 +6,19 @@ import {
   Trash2,
   Copy,
   Check,
-  Bot,
   User,
+  RotateCcw,
+  ThumbsUp,
+  ThumbsDown,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Minimize2,
   Compass,
-  AlertCircle,
-  HelpCircle,
-  Globe
+  ArrowDown
 } from 'lucide-react';
 import { chatWithCopilot } from '../lib/api.js';
+import { GeminiMarkdown } from './GeminiMarkdown.js';
 import type { ChatMessage } from '../types/index.js';
 
 interface GeminiCopilotDrawerProps {
@@ -32,21 +37,27 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: `Hello! I'm your **Gemini 3.8 Flash Foreign Journey Copilot** ✈️\n\nI can assist you with real-time customs rules, airport layover transit visas, medical restrictions, cultural etiquette, or emergency consular protocols. What would you like to explore?`,
+      content: `### Welcome to Gemini Foreign Journey Copilot ✨\n\nI can provide clean, real-time advice tailored to your itinerary:\n\n* **Visa & Entry Rules**: eVisa turnaround, consular requirements, and passport validity.\n* **Airport Layover Protocols**: Transit visa exemptions, terminal transfers, and luggage re-check.\n* **Banned OTC Medications**: Specific country drug prohibitions and prescription requirements.\n* **Electrical & Voltage Specs**: Plug socket types and converter recommendations.\n* **Emergency Protocols**: 24/7 tourist police hotlines and embassy assistance.\n\n*Where are you heading, or what question can I answer for you today?*`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<Record<number, 'up' | 'down'>>({});
+  const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const quickPrompts = [
+    { label: '🛂 Visa Terms', query: 'Explain the difference between an eVisa, Visa on Arrival (VoA), Electronic Travel Authorization (ETA), and Consular Sticker Visa.' },
+    { label: '📑 Document Prep', query: `What financial proof, employment letters, and bank statement requirements are typically needed for a visa to ${destinationContext || 'my destination'}?` },
+    { label: '💰 Budget & Timeline', query: `Help me structure a realistic daily travel budget breakdown and planning timeline for visiting ${destinationContext || 'my destination'}.` },
     { label: '💊 Banned OTC Meds', query: `What common over-the-counter medications are strictly banned or restricted in ${destinationContext || 'my destination'}?` },
-    { label: '⏳ Layover Rules', query: `Do I need a transit visa for a layover in ${destinationContext || 'Europe/Middle East'} with my passport?` },
-    { label: '🔌 Plugs & Power', query: `What electrical plug socket type and voltage is used in ${destinationContext || 'my destination'}?` },
-    { label: '🚨 Emergency Tips', query: `What are emergency numbers, common tourist scams, and consulate advice for ${destinationContext || 'my destination'}?` },
-    { label: '🪙 Tipping & Customs', query: `What are the tipping customs and cultural etiquette dos and don'ts in ${destinationContext || 'my destination'}?` }
+    { label: '⏳ Layover Transit Rules', query: `Do I need a transit visa for an airport layover when flying to ${destinationContext || 'international hubs'}?` },
+    { label: '🔌 Plugs & Voltage', query: `What electrical plug socket type and voltage is used in ${destinationContext || 'my destination'}?` },
+    { label: '🚨 Emergency Hotlines', query: `What are emergency numbers, tourist police contacts, and common tourist scams in ${destinationContext || 'my destination'}?` }
   ];
 
   const scrollToBottom = () => {
@@ -56,6 +67,13 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   useEffect(() => {
     if (isOpen) {
       scrollToBottom();
+      setTimeout(() => textareaRef.current?.focus(), 150);
+    } else {
+      // Stop speech synthesis if closed
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        setSpeakingIndex(null);
+      }
     }
   }, [messages, isOpen]);
 
@@ -102,12 +120,23 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
         ...prev,
         {
           role: 'assistant',
-          content: '⚠️ Unable to reach Gemini service at the moment. Please ensure the backend is running and try again.',
+          content: '### ⚠️ Live Connection Notice\n\nUnable to reach the Gemini service at this moment. Please ensure the backend server is running and try again in a few seconds.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRegenerateLast = () => {
+    if (isLoading) return;
+    // Find the last user message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        handleSendMessage(messages[i].content);
+        break;
+      }
     }
   };
 
@@ -124,11 +153,37 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
+  const handleSpeakMessage = (content: string, index: number) => {
+    if (!window.speechSynthesis) return;
+
+    if (speakingIndex === index) {
+      window.speechSynthesis.cancel();
+      setSpeakingIndex(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    // Strip markdown symbols for clean audio speech
+    const cleanSpeechText = content
+      .replace(/[#*`_~>-]/g, ' ')
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpeechText);
+    utterance.rate = 1.0;
+    utterance.onend = () => setSpeakingIndex(null);
+    utterance.onerror = () => setSpeakingIndex(null);
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  };
+
   const handleClearHistory = () => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setSpeakingIndex(null);
     setMessages([
       {
         role: 'assistant',
-        content: `Conversation refreshed. How can I assist with your journey to **${destinationContext || 'any global destination'}** today?`,
+        content: `### Conversation Cleared ✨\n\nHow can I help you plan or navigate your journey to **${destinationContext || 'any global destination'}** today?`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
@@ -138,109 +193,189 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm transition-all duration-300">
-      <div className="w-full max-w-lg h-full bg-navy-900 border-l border-cyan-500/30 flex flex-col shadow-2xl shadow-cyan-950 animate-slideInRight">
-        {/* Drawer Header */}
-        <div className="p-4 px-6 border-b border-slate-800 bg-navy-950/80 flex items-center justify-between">
+      <div
+        className={`w-full h-full bg-[#0d1117] border-l border-slate-800 flex flex-col shadow-2xl transition-all duration-300 ease-in-out ${
+          isExpanded ? 'max-w-3xl' : 'max-w-xl'
+        }`}
+      >
+        {/* Gemini-Inspired Header */}
+        <div className="p-3.5 px-5 border-b border-slate-800 bg-[#161b22]/90 backdrop-blur-md flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-glow-cyan">
-              <Sparkles className="w-5 h-5 animate-pulse" />
+            {/* Iconic Gemini Gradient Sparkle */}
+            <div className="relative w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-500 to-indigo-500 p-0.5 shadow-[0_0_15px_rgba(6,182,212,0.4)] flex items-center justify-center">
+              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
+              </div>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-white text-sm">Gemini AI Travel Copilot</h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono">
+                <h3 className="font-semibold text-white text-sm tracking-wide">Gemini Copilot</h3>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono font-medium">
                   3.8 Flash
                 </span>
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
               </div>
-              <p className="text-[11px] text-slate-400">
-                {destinationContext ? `Context: ${destinationContext}` : 'Global Foreign Journey Advisor'}
+              <p className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                <Compass className="w-3 h-3 text-cyan-400" />
+                {destinationContext ? `Context: ${destinationContext}` : 'Global Travel Intelligence'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {/* Expand / Minimize Toggle */}
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              title={isExpanded ? "Collapse drawer" : "Expand for spacious view"}
+              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+            >
+              {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
             <button
               onClick={handleClearHistory}
-              title="Clear chat history"
+              title="Clear conversation"
               className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
             >
               <Trash2 className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title="Close drawer"
+              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Quick Suggestion Chips */}
-        <div className="p-3 px-6 bg-slate-900/60 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto scrollbar-none">
-          <span className="text-[10px] text-slate-400 font-semibold uppercase whitespace-nowrap">Suggested:</span>
+        {/* Suggestion Chips */}
+        <div className="p-2.5 px-5 bg-[#0f141c] border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider whitespace-nowrap">Suggested:</span>
           {quickPrompts.map((chip, idx) => (
             <button
               key={idx}
               onClick={() => handleSendMessage(chip.query)}
               disabled={isLoading}
-              className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-slate-700/60 hover:border-cyan-500/40 whitespace-nowrap transition-all"
+              className="text-[11px] px-3 py-1 rounded-full bg-slate-800/70 hover:bg-cyan-500/15 text-slate-300 hover:text-cyan-300 border border-slate-700/60 hover:border-cyan-500/40 whitespace-nowrap transition-all shadow-sm active:scale-95"
             >
               {chip.label}
             </button>
           ))}
         </div>
 
-        {/* Chat Messages Feed */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 scrollbar-thin">
+        {/* Chat Feed */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
           {messages.map((msg, idx) => {
             const isUser = msg.role === 'user';
             return (
               <div
                 key={idx}
-                className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+                className={`flex gap-3.5 ${isUser ? 'justify-end' : 'justify-start'}`}
               >
                 {!isUser && (
-                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex-shrink-0 flex items-center justify-center text-cyan-400 mt-1">
-                    <Bot className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-500 to-indigo-500 p-0.5 flex-shrink-0 shadow-md mt-0.5">
+                    <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                    </div>
                   </div>
                 )}
 
-                <div
-                  className={`max-w-[85%] rounded-2xl p-4 text-xs md:text-sm leading-relaxed ${
-                    isUser
-                      ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white rounded-tr-none shadow-md'
-                      : 'bg-slate-900/90 border border-slate-800 text-slate-200 rounded-tl-none shadow-lg'
-                  }`}
-                >
-                  <div className="whitespace-pre-wrap font-sans space-y-2">
-                    {msg.content}
+                <div className={`max-w-[88%] ${isUser ? 'order-1' : ''}`}>
+                  {/* Message Bubble / Container */}
+                  <div
+                    className={`${
+                      isUser
+                        ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white rounded-2xl rounded-tr-sm p-3.5 px-4 shadow-md text-xs sm:text-sm leading-relaxed'
+                        : 'bg-[#161b22]/90 border border-slate-800 rounded-2xl rounded-tl-sm p-4 sm:p-5 shadow-lg text-slate-200'
+                    }`}
+                  >
+                    {isUser ? (
+                      <div className="whitespace-pre-wrap font-sans text-xs sm:text-sm leading-relaxed">
+                        {msg.content}
+                      </div>
+                    ) : (
+                      /* Clean Rich Gemini Markdown */
+                      <GeminiMarkdown content={msg.content} />
+                    )}
                   </div>
 
-                  <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
+                  {/* Message Bottom Action Bar */}
+                  <div className={`mt-1.5 px-1 flex items-center gap-3 text-[11px] text-slate-400 ${isUser ? 'justify-end' : 'justify-between'}`}>
                     <span>{msg.timestamp || ''}</span>
+
                     {!isUser && (
-                      <button
-                        onClick={() => handleCopyMessage(msg.content, idx)}
-                        className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
-                      >
-                        {copiedIndex === idx ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-1">
+                        {/* Copy Button */}
+                        <button
+                          onClick={() => handleCopyMessage(msg.content, idx)}
+                          title="Copy response"
+                          className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800/60 transition-colors flex items-center gap-1 text-[11px]"
+                        >
+                          {copiedIndex === idx ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400 text-[10px]">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span className="text-[10px]">Copy</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* Read Aloud Button */}
+                        <button
+                          onClick={() => handleSpeakMessage(msg.content, idx)}
+                          title={speakingIndex === idx ? "Stop speaking" : "Read aloud"}
+                          className={`p-1 rounded transition-colors flex items-center gap-1 text-[11px] ${
+                            speakingIndex === idx ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          {speakingIndex === idx ? (
+                            <>
+                              <VolumeX className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                              <span className="text-[10px] text-cyan-400">Stop</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span className="text-[10px]">Listen</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* Thumbs Up */}
+                        <button
+                          onClick={() => setFeedback(prev => ({ ...prev, [idx]: 'up' }))}
+                          title="Good response"
+                          className={`p-1 rounded transition-colors ${
+                            feedback[idx] === 'up' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Thumbs Down */}
+                        <button
+                          onClick={() => setFeedback(prev => ({ ...prev, [idx]: 'down' }))}
+                          title="Poor response"
+                          className={`p-1 rounded transition-colors ${
+                            feedback[idx] === 'down' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <ThumbsDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
 
                 {isUser && (
-                  <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex-shrink-0 flex items-center justify-center text-indigo-300 mt-1">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex-shrink-0 flex items-center justify-center text-indigo-300 mt-0.5">
                     <User className="w-4 h-4" />
                   </div>
                 )}
@@ -248,16 +383,19 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
             );
           })}
 
+          {/* Gemini Loading State */}
           {isLoading && (
-            <div className="flex gap-3 justify-start items-center">
-              <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 animate-pulse">
-                <Sparkles className="w-4 h-4" />
+            <div className="flex gap-3 justify-start items-center animate-fadeIn">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-500 to-indigo-500 p-0.5 flex-shrink-0 shadow-md">
+                <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-cyan-400 animate-spin" />
+                </div>
               </div>
-              <div className="p-3.5 px-5 rounded-2xl bg-slate-900/90 border border-slate-800 rounded-tl-none flex items-center gap-2">
+              <div className="p-3.5 px-5 rounded-2xl bg-[#161b22] border border-slate-800 rounded-tl-sm flex items-center gap-2.5">
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" />
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce [animation-delay:0.2s]" />
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce [animation-delay:0.4s]" />
-                <span className="text-xs text-slate-400 ml-2">Gemini is analyzing...</span>
+                <span className="text-xs text-slate-300 font-medium ml-1">Gemini is structuring your answer...</span>
               </div>
             </div>
           )}
@@ -265,31 +403,51 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Chat Input Bar */}
-        <div className="p-4 border-t border-slate-800 bg-navy-950/90">
-          <div className="relative flex items-end bg-slate-900 border border-slate-700/80 rounded-2xl focus-within:border-cyan-500/80 transition-all p-1.5 shadow-inner">
+        {/* Input Bar */}
+        <div className="p-4 border-t border-slate-800 bg-[#161b22]/90 backdrop-blur-md">
+          {messages.length > 2 && (
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={handleRegenerateLast}
+                disabled={isLoading}
+                className="text-[11px] text-slate-400 hover:text-cyan-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded hover:bg-slate-800"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Regenerate response</span>
+              </button>
+            </div>
+          )}
+
+          <div className="relative flex items-end bg-[#0d1117] border border-slate-700/80 rounded-2xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/40 transition-all p-1.5 shadow-inner">
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Ask Gemini about ${destinationContext || 'visas, customs, packing, emergency steps'}...`}
+              placeholder={`Ask Gemini about ${destinationContext || 'customs, layovers, visas, or packing'}...`}
               rows={2}
-              className="w-full bg-transparent text-white text-xs md:text-sm p-2.5 resize-none focus:outline-none placeholder-slate-500"
+              className="w-full bg-transparent text-white text-xs sm:text-sm p-2.5 resize-none focus:outline-none placeholder-slate-500 font-sans"
             />
             <button
               onClick={() => handleSendMessage()}
               disabled={!input.trim() || isLoading}
-              className="p-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-navy-950 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform active:scale-95 shadow-glow-cyan flex-shrink-0"
+              className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-medium disabled:opacity-30 disabled:cursor-not-allowed transition-all transform active:scale-95 shadow-[0_0_12px_rgba(6,182,212,0.4)] flex-shrink-0"
+              title="Send message"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
+
           <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500 px-1">
-            <span>Press Enter to send, Shift+Enter for new line</span>
-            <span className="flex items-center gap-1 text-cyan-400/80">
-              <Sparkles className="w-2.5 h-2.5" /> Powered by Google GenAI
+            <span>Press <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">Enter</kbd> to send, <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">Shift+Enter</kbd> for new line</span>
+            <span className="flex items-center gap-1 text-cyan-400/80 font-medium">
+              <Sparkles className="w-2.5 h-2.5" /> Powered by Google Gemini
             </span>
           </div>
+
+          <p className="mt-2 text-[10px] text-slate-400 text-center leading-tight">
+            Advisory intelligence only. Always confirm official entry rules with sovereign embassies or IATA Timatic before departure. Never transmit unencrypted passport numbers or financial account credentials.
+          </p>
         </div>
       </div>
     </div>

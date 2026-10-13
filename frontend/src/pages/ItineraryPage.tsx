@@ -14,7 +14,8 @@ import {
   Loader2,
   AlertCircle,
   MapPin,
-  Check
+  Check,
+  RotateCcw
 } from 'lucide-react';
 
 const popularDestinations = [
@@ -29,10 +30,17 @@ const popularDestinations = [
 ];
 
 export const ItineraryPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, recordViewedDestination } = useAuth();
 
   const [destination, setDestination] = useState('Tokyo, Japan');
   const [durationDays, setDurationDays] = useState(7);
+  const [departureDate, setDepartureDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [preferredCurrency, setPreferredCurrency] = useState('USD');
+  const [travelPace, setTravelPace] = useState<'Relaxed' | 'Balanced' | 'Fast-Paced'>('Balanced');
   const [budgetRange, setBudgetRange] = useState<BudgetRange>('Moderate');
   const [travelPurpose, setTravelPurpose] = useState<TravelPurpose>('Tourism');
   const [originCountry, setOriginCountry] = useState(user?.homeCountry || 'United States');
@@ -56,6 +64,11 @@ export const ItineraryPage: React.FC = () => {
     setLoading(true);
     setGeneratedResult(null);
 
+    // Persist destination to user's recently viewed corridors
+    if (destination) {
+      recordViewedDestination(destination);
+    }
+
     // Simulate progressive status steps
     let step = 0;
     const interval = setInterval(() => {
@@ -64,13 +77,14 @@ export const ItineraryPage: React.FC = () => {
     }, 1200);
 
     try {
+      const augmentedPreferences = `${travelerPreferences} | Target Departure: ${departureDate} | Preferred Currency: ${preferredCurrency} | Travel Pace: ${travelPace}`;
       const response = await generateItinerary({
         destination,
         durationDays: Number(durationDays),
         budgetRange,
         travelPurpose,
         originCountry,
-        travelerPreferences
+        travelerPreferences: augmentedPreferences
       });
 
       clearInterval(interval);
@@ -119,9 +133,17 @@ export const ItineraryPage: React.FC = () => {
       {/* Input Parameters Form Card */}
       <div className="glass-card p-6 md:p-8 border-slate-800 space-y-6">
         {errorMsg && (
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-            <span>{errorMsg}</span>
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start justify-between gap-3 animate-fadeIn">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+            <button
+              onClick={handleSubmit}
+              className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 text-[11px] font-semibold flex items-center gap-1 shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" /> Retry
+            </button>
           </div>
         )}
 
@@ -226,6 +248,55 @@ export const ItineraryPage: React.FC = () => {
                 placeholder="e.g. United States"
                 className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500"
               />
+            </div>
+          </div>
+
+          {/* Travel Dates, Currency & Travel Pace */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-cyan-400" /> Target Departure Date
+              </label>
+              <input
+                type="date"
+                value={departureDate}
+                onChange={(e) => setDepartureDate(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-400" /> Display Currency
+              </label>
+              <select
+                value={preferredCurrency}
+                onChange={(e) => setPreferredCurrency(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500"
+              >
+                <option value="USD">USD ($) — US Dollar</option>
+                <option value="EUR">EUR (€) — Euro</option>
+                <option value="GBP">GBP (£) — British Pound</option>
+                <option value="INR">INR (₹) — Indian Rupee</option>
+                <option value="JPY">JPY (¥) — Japanese Yen</option>
+                <option value="AUD">AUD ($) — Australian Dollar</option>
+                <option value="CAD">CAD ($) — Canadian Dollar</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                <Sliders className="w-3.5 h-3.5 text-purple-400" /> Preferred Travel Pace
+              </label>
+              <select
+                value={travelPace}
+                onChange={(e) => setTravelPace(e.target.value as 'Relaxed' | 'Balanced' | 'Fast-Paced')}
+                className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500"
+              >
+                <option value="Relaxed">Relaxed (1-2 curated spots / day, leisure downtime)</option>
+                <option value="Balanced">Balanced (3-4 highlights / day, steady pacing)</option>
+                <option value="Fast-Paced">Fast-Paced (Maximum sightseeing, active transit)</option>
+              </select>
             </div>
           </div>
 

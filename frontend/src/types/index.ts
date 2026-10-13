@@ -46,6 +46,13 @@ export interface VisaCheckInput {
   travelPurpose?: TravelPurpose;
 }
 
+export interface OfficialSource {
+  name: string;
+  authorityType: string;
+  portalUrl?: string;
+  description?: string;
+}
+
 export interface VisaCheckResult {
   destinationCountry: string;
   passportCountry: string;
@@ -59,6 +66,11 @@ export interface VisaCheckResult {
   healthAndVaccineMandates: string[];
   importantAdvisories: string[];
   entryCheckpoints?: string;
+  // Official Government & Consular Verification
+  officialSources?: OfficialSource[];
+  officialPortalUrl?: string;
+  verificationBadge?: string;
+  lastVerifiedDate?: string;
 }
 
 export interface DocumentComplianceItem {
@@ -162,4 +174,84 @@ export interface PackingChecklistResult {
   seasonAdvice: string;
   categories: PackingCategory[];
 }
+
+export type TripStatus = 'Planning' | 'Visa In Progress' | 'Ready to Fly' | 'Completed' | 'Archived';
+
+export interface TripRecord {
+  id: string;
+  user_id: string;
+  destination: string;
+  origin_country: string;
+  departure_date?: string;
+  return_date?: string;
+  purpose: TravelPurpose | string;
+  status: TripStatus;
+  budget_range?: BudgetRange | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChecklistItemCategory =
+  | 'Identification'
+  | 'Financial'
+  | 'Travel Logistics'
+  | 'Health & Vaccines'
+  | 'Accommodation'
+  | 'Employment / Academic'
+  | 'Other';
+
+export type RequirementLevel = 'required' | 'conditional' | 'recommended';
+export type ChecklistItemStatus = 'Not started' | 'In progress' | 'Ready' | 'Needs review';
+
+export interface ChecklistItemRecord {
+  id: string;
+  checklist_id: string;
+  user_id: string;
+  title: string;
+  category: ChecklistItemCategory;
+  requirement_level: RequirementLevel;
+  status: ChecklistItemStatus;
+  notes?: string;
+  file_reference?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentChecklistRecord {
+  id: string;
+  user_id: string;
+  trip_id?: string;
+  destination_country: string;
+  visa_category: string;
+  completion_percentage: number;
+  items?: ChecklistItemRecord[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationMilestoneRecord {
+  id: string;
+  user_id: string;
+  trip_id?: string;
+  milestone_name: string;
+  target_date?: string;
+  is_completed: boolean;
+  completed_at?: string;
+  notes?: string;
+  order_index: number;
+  created_at: string;
+}
+
+export interface SavedSourceRecord {
+  id: string;
+  user_id: string;
+  destination_country: string;
+  source_name: string;
+  authority_type: string;
+  portal_url: string;
+  last_verified_date?: string;
+  notes?: string;
+  created_at: string;
+}
+
 

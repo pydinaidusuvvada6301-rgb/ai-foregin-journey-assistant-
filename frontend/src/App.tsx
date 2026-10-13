@@ -10,6 +10,7 @@ import { Sparkles } from 'lucide-react';
 import { LandingPage } from './pages/LandingPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { SignupPage } from './pages/SignupPage.js';
+import { UpdatePasswordPage } from './pages/UpdatePasswordPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { ItineraryPage } from './pages/ItineraryPage.js';
 import { VisaCheckerPage } from './pages/VisaCheckerPage.js';
@@ -26,12 +27,13 @@ export const App: React.FC = () => {
           <Navbar onOpenCopilot={() => setIsCopilotOpen(true)} />
           <main className="flex-1">
             <Routes>
-              {/* Public Routes */}
+              {/* Public Marketing & Authentication Routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/reset-password" element={<UpdatePasswordPage />} />
 
-              {/* Protected Routes (Supabase / Verified JWT) */}
+              {/* Protected User Account Routes (Supabase Auth / Session Required) */}
               <Route
                 path="/dashboard"
                 element={
@@ -73,17 +75,17 @@ export const App: React.FC = () => {
                 }
               />
 
-              {/* Fallback */}
+              {/* Catch-all fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
           <Footer />
 
-          {/* Global Floating Gemini Travel Copilot Button */}
+          {/* Global Floating Gemini Travel Copilot Trigger */}
           <button
             onClick={() => setIsCopilotOpen(true)}
             className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs shadow-2xl shadow-cyan-500/30 hover:scale-105 active:scale-95 transition-all group border border-cyan-400/40"
-            title="Ask Gemini 3.8 Flash Travel Copilot"
+            title="Ask Gemini Travel Copilot"
           >
             <div className="relative">
               <Sparkles className="w-4 h-4 text-cyan-200 group-hover:rotate-12 transition-transform" />

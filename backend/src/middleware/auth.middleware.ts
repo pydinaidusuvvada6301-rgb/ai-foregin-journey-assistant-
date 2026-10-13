@@ -22,10 +22,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // Handle Demo/Testing mode token
+  // Handle Demo/Testing mode token (Strictly locked to isolated demo sandbox ID)
   if (token.startsWith('demo-token') || !isSupabaseConfigured) {
     req.user = {
-      id: token.startsWith('demo-token-') ? token.replace('demo-token-', '') : 'demo-user-123',
+      id: 'demo-user-123',
       email: 'traveler@visavoyage.ai',
       user_metadata: {
         full_name: 'Alex Vance (Voyager)',
@@ -51,18 +51,35 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    req.user = {
-      id: user.id,
-      email: user.email,
-      user_metadata: user.user_metadata
-    };
+      req.user = {
+        id: user.id,
+        email: user.email,
+        user_metadata: user.user_metadata
+      };
 
-    next();
-  } catch (err: any) {
-    console.error('[Auth Middleware] Verification error:', err?.message || err);
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Failed to verify authentication credentials.'
-    });
+      next();
+    } catch (err: any) {
+      console.error('[Auth Middleware] Verification error:', err?.message || err);
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Failed to verify authentication credentials.'
+      });
+    }
   }
+
+export async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    req.user = {
+      id: 'demo-guest-user',
+      email: 'traveler@visavoyage.ai',
+      user_metadata: {
+        full_name: 'Guest Traveler',
+        home_country: 'United States'
+      }
+    };
+    return next();
+  }
+  return requireAuth(req, res, next);
 }
+

@@ -57,29 +57,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
             </div>
           </Link>
 
-          {/* Desktop Navigation Links */}
-          {user && (
-            <nav className="hidden md:flex items-center gap-1">
-              {navLinks.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all ${
-                      active
-                        ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 shadow-sm'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
-                    }`}
-                  >
-                    <Icon className={`w-4 h-4 ${active ? 'text-cyan-400' : 'text-slate-400'}`} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          )}
+          {/* Desktop Navigation Links (Always Accessible) */}
+          <nav className="hidden md:flex items-center gap-1">
+            {navLinks.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-medium transition-all ${
+                    active
+                      ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${active ? 'text-cyan-400' : 'text-slate-400'}`} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
 
           {/* Auth Controls & Status */}
           <div className="hidden md:flex items-center gap-3">
@@ -238,7 +236,42 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
               </button>
             </>
           ) : (
-            <div className="space-y-2 pt-2">
+            <div className="space-y-3 pt-1">
+              <div className="space-y-1">
+                {navLinks.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item.path);
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
+                        active
+                          ? 'bg-cyan-500/15 text-cyan-400'
+                          : 'text-slate-300 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+
+              {onOpenCopilot && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenCopilot();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl text-center text-sm font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                  Ask Gemini Travel Copilot
+                </button>
+              )}
+
               <button
                 onClick={() => {
                   signInWithDemo();
@@ -247,23 +280,26 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
                 }}
                 className="w-full py-2.5 px-4 rounded-xl text-center text-sm font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center gap-2"
               >
-                <Sparkles className="w-4 h-4" />
-                Test Interactive Demo
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                Launch 3D Traveler Demo
               </button>
-              <Link
-                to="/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block w-full py-2.5 px-4 rounded-xl text-center text-sm font-semibold bg-slate-800 text-white"
-              >
-                Sign In
-              </Link>
-              <Link
-                to="/signup"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block w-full py-2.5 px-4 rounded-xl text-center text-sm font-semibold bg-cyan-500 text-navy-950 shadow-glow-cyan"
-              >
-                Create Free Account
-              </Link>
+
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="py-2.5 px-3 rounded-xl text-center text-xs font-semibold bg-slate-800 text-white"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="py-2.5 px-3 rounded-xl text-center text-xs font-semibold bg-cyan-500 text-navy-950 shadow-glow-cyan"
+                >
+                  Get Started
+                </Link>
+              </div>
             </div>
           )}
         </div>
