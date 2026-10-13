@@ -293,6 +293,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
       if (error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('unsupported provider') || msg.includes('not enabled') || msg.includes('provider is not enabled')) {
+          return {
+            error: 'Google OAuth sign-in requires enabling the Google provider in the Supabase Dashboard (Authentication → Providers → Google). You can sign in immediately using your Gmail address and password below, or launch Instant Sandbox Mode.'
+          };
+        }
         return { error: error.message };
       }
       return { error: null };

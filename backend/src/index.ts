@@ -10,6 +10,7 @@ import visaRoutes from './routes/visa.routes.js';
 import documentRoutes from './routes/document.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 import authRoutes from './routes/auth.routes.js';
+import locationRoutes from './routes/location.routes.js';
 import { errorHandler } from './middleware/errorHandler.middleware.js';
 import { isGeminiConfigured, MODEL_NAME } from './services/gemini.service.js';
 import { isSupabaseConfigured } from './services/supabase.service.js';
@@ -99,6 +100,7 @@ app.use('/api/itineraries', itineraryRoutes);
 app.use('/api/visa-checks', visaRoutes);
 app.use('/api/document-checks', documentRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/location', locationRoutes);
 
 // 7. Global Error Handler
 app.use(errorHandler);

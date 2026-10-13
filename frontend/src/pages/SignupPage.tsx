@@ -1,21 +1,44 @@
-import React, { useState } from 'react';
-import { Link, useNavigate, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { Plane, Lock, Mail, User, Globe, ArrowRight, AlertCircle, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 
 export const SignupPage: React.FC = () => {
   const { user, loading, signUpWithEmail, signInWithGoogle, signInWithDemo } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const searchParams = new URLSearchParams(location.search);
+  const initialEmail = searchParams.get('email') || '';
 
   const [fullName, setFullName] = useState('');
   const [homeCountry, setHomeCountry] = useState('United States');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Detect OAuth redirect errors from URL hash
+  useEffect(() => {
+    const hash = window.location.hash || '';
+    const paramsString = hash.replace(/^#/, '');
+    if (paramsString) {
+      const params = new URLSearchParams(paramsString);
+      const err = params.get('error_description') || params.get('error');
+      if (err) {
+        const decoded = decodeURIComponent(err).replace(/\+/g, ' ');
+        if (decoded.toLowerCase().includes('unsupported') || decoded.toLowerCase().includes('not enabled') || decoded.toLowerCase().includes('provider')) {
+          setErrorMsg('Google OAuth is pending activation in the Supabase Dashboard (Authentication → Providers → Google). You can register directly with your Gmail address below, or launch Instant Sandbox Mode.');
+        } else {
+          setErrorMsg(`OAuth notice: ${decoded}`);
+        }
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   // Redirect authenticated users away from signup
   if (!loading && user) {

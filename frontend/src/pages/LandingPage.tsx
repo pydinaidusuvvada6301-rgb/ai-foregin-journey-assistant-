@@ -14,9 +14,10 @@ import {
   ChevronRight,
   Layers,
   Award,
-  Zap
+  Zap,
+  Globe
 } from 'lucide-react';
-import { ThreeGlobe } from '../components/ThreeGlobe.js';
+import { MobilityGlobe3D } from '../components/MobilityGlobe3D.js';
 import { Card3D } from '../components/Card3D.js';
 import { FloatingPassport3D } from '../components/FloatingPassport3D.js';
 
@@ -173,21 +174,33 @@ export const LandingPage: React.FC = () => {
       <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300">
-            <Globe2 className="w-3.5 h-3.5" /> Interactive 3D Flight Network
+            <Globe2 className="w-3.5 h-3.5" /> Interactive 3D Flight & Mobility Network
           </div>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
             Explore Global Corridors in Real Time
           </h2>
           <p className="text-sm sm:text-base text-slate-400">
-            Drag to rotate the 3D globe. Inspect live entry windows, electronic travel authorizations, and active transit corridors connecting world capitals.
+            Drag to rotate the 3D globe. Inspect great-circle flight arcs, real-time bilateral immigration verification, and active air corridors connecting world capitals.
           </p>
+          <div className="pt-1">
+            <Link
+              to="/mobility-globe"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 border border-cyan-500/40 text-xs sm:text-sm font-semibold shadow-glow-cyan transition-all transform hover:scale-105 active:scale-95"
+            >
+              <Globe className="w-4 h-4 text-cyan-400 animate-spin-slow" />
+              <span>Open Dedicated 3D Mobility Lab</span>
+              <ArrowRight className="w-3.5 h-3.5 text-cyan-400" />
+            </Link>
+          </div>
         </div>
 
         {/* 3D WebGL Globe Viewport */}
-        <ThreeGlobe
-          onSelectHub={(hub) => setSelectedHub(hub.name)}
-          className="my-4"
-        />
+        <div className="relative">
+          <MobilityGlobe3D
+            initialOriginId="nyc"
+            initialDestId="tyo"
+          />
+        </div>
 
         {/* Quick Sample Destinations Strip */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

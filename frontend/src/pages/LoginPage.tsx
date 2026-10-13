@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { Plane, Lock, Mail, ArrowRight, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
@@ -19,6 +19,26 @@ export const LoginPage: React.FC = () => {
   const [resetLoading, setResetLoading] = useState(false);
 
   const from = (location.state as any)?.from?.pathname || '/dashboard';
+
+  // Detect OAuth redirect errors from URL hash (e.g., from Supabase OAuth redirect)
+  useEffect(() => {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const paramsString = hash.replace(/^#/, '') || search.replace(/^\?/, '');
+    if (paramsString) {
+      const params = new URLSearchParams(paramsString);
+      const err = params.get('error_description') || params.get('error');
+      if (err) {
+        const decoded = decodeURIComponent(err).replace(/\+/g, ' ');
+        if (decoded.toLowerCase().includes('unsupported') || decoded.toLowerCase().includes('not enabled') || decoded.toLowerCase().includes('provider')) {
+          setErrorMsg('Google OAuth is pending activation in your Supabase Dashboard (Authentication → Providers → Google). You can sign in immediately with your Gmail address and password below, or use Instant Sandbox Mode.');
+        } else {
+          setErrorMsg(`OAuth notice: ${decoded}`);
+        }
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   // Redirect authenticated users away from login
   if (!loading && user) {
@@ -108,6 +128,17 @@ export const LoginPage: React.FC = () => {
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
                 <span>{errorMsg}</span>
               </div>
+              {errorMsg.toLowerCase().includes('invalid email or password') && (
+                <div className="pt-1.5 border-t border-rose-500/20 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-300">Need to create an account first?</span>
+                  <Link
+                    to={`/signup${email ? `?email=${encodeURIComponent(email)}` : ''}`}
+                    className="text-xs font-bold text-cyan-400 hover:text-cyan-300 underline"
+                  >
+                    Sign Up Now →
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { generateItinerary } from '../lib/api.js';
 import { ItineraryResultCard } from '../components/ItineraryResultCard.js';
+import { LocationDetectorButton } from '../components/LocationDetectorButton.js';
 import type { ItineraryDetails, BudgetRange, TravelPurpose } from '../types/index.js';
 import {
   Compass,
@@ -150,9 +151,16 @@ export const ItineraryPage: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Destination Selection */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-cyan-400" /> Destination City & Country
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-cyan-400" /> Destination City & Country
+              </label>
+              <LocationDetectorButton
+                variant="compact"
+                label="Set to My Location"
+                onLocationDetected={(text) => setDestination(text)}
+              />
+            </div>
             <input
               type="text"
               value={destination}
@@ -238,15 +246,28 @@ export const ItineraryPage: React.FC = () => {
 
             {/* Origin Passport */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-                <Globe className="w-3.5 h-3.5 text-cyan-400" /> Passport Origin
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <Globe className="w-3.5 h-3.5 text-cyan-400" /> Passport Origin
+                </label>
+                <LocationDetectorButton
+                  variant="compact"
+                  label="Detect"
+                  onLocationDetected={(_text, data) => {
+                    if (data.country) {
+                      setOriginCountry(data.country);
+                    } else if (data.formattedOrigin) {
+                      setOriginCountry(data.formattedOrigin);
+                    }
+                  }}
+                />
+              </div>
               <input
                 type="text"
                 value={originCountry}
                 onChange={(e) => setOriginCountry(e.target.value)}
                 placeholder="e.g. United States"
-                className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500"
+                className="w-full px-3 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 font-medium"
               />
             </div>
           </div>

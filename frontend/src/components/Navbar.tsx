@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Sparkles,
+  Globe,
   User as UserIcon
 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
 
   const navLinks = [
     { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { label: '3D Globe', path: '/mobility-globe', icon: Globe, is3D: true },
     { label: 'AI Itinerary', path: '/itinerary', icon: Compass },
     { label: 'Visa Wizard', path: '/visa-checker', icon: ShieldCheck },
     { label: 'Doc Scanner', path: '/document-analyzer', icon: FileSearch },
@@ -73,7 +75,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
                   }`}
                 >
                   <Icon className={`w-4 h-4 ${active ? 'text-cyan-400' : 'text-slate-400'}`} />
-                  {item.label}
+                  <span>{item.label}</span>
+                  {item.is3D && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-gradient-to-r from-cyan-500 to-indigo-500 text-white shadow-glow-cyan">
+                      3D
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -199,14 +206,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
                       key={item.path}
                       to={item.path}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium ${
                         active
                           ? 'bg-cyan-500/15 text-cyan-400'
                           : 'text-slate-300 hover:bg-slate-800/60'
                       }`}
                     >
-                      <Icon className="w-4 h-4" />
-                      {item.label}
+                      <div className="flex items-center gap-3">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.is3D && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          3D
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -246,14 +260,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCopilot }) => {
                       key={item.path}
                       to={item.path}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium ${
                         active
                           ? 'bg-cyan-500/15 text-cyan-400'
                           : 'text-slate-300 hover:bg-slate-800/60'
                       }`}
                     >
-                      <Icon className="w-4 h-4" />
-                      {item.label}
+                      <div className="flex items-center gap-3">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.is3D && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          3D
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

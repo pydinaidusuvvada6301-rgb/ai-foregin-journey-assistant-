@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { checkVisaRequirements } from '../lib/api.js';
 import { VisaCheckCard } from '../components/VisaCheckCard.js';
+import { LocationDetectorButton } from '../components/LocationDetectorButton.js';
 import type { VisaCheckResult, TravelPurpose } from '../types/index.js';
 import {
   ShieldCheck,
@@ -201,9 +202,20 @@ export const VisaCheckerPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Passport Origin */}
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Globe className="w-3.5 h-3.5 text-cyan-400" /> Passport Country of Citizenship
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-cyan-400" /> Passport Country of Citizenship
+                    </label>
+                    <LocationDetectorButton
+                      variant="compact"
+                      label="Detect Country"
+                      onLocationDetected={(_text, data) => {
+                        if (data.country) {
+                          setPassportCountry(data.country);
+                        }
+                      }}
+                    />
+                  </div>
                   <input
                     type="text"
                     value={passportCountry}

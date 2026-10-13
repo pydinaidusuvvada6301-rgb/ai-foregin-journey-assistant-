@@ -16,6 +16,7 @@ import { ItineraryPage } from './pages/ItineraryPage.js';
 import { VisaCheckerPage } from './pages/VisaCheckerPage.js';
 import { DocumentAnalyzerPage } from './pages/DocumentAnalyzerPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
+import { MobilityGlobePage } from './pages/MobilityGlobePage.js';
 
 export const App: React.FC = () => {
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
@@ -27,8 +28,9 @@ export const App: React.FC = () => {
           <Navbar onOpenCopilot={() => setIsCopilotOpen(true)} />
           <main className="flex-1">
             <Routes>
-              {/* Public Marketing & Authentication Routes */}
+              {/* Public Marketing & Global Tools */}
               <Route path="/" element={<LandingPage />} />
+              <Route path="/mobility-globe" element={<MobilityGlobePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/reset-password" element={<UpdatePasswordPage />} />
