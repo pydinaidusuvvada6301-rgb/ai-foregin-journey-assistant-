@@ -11,7 +11,7 @@ import documentRoutes from './routes/document.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { errorHandler } from './middleware/errorHandler.middleware.js';
-import { isGeminiConfigured } from './services/gemini.service.js';
+import { isGeminiConfigured, MODEL_NAME } from './services/gemini.service.js';
 import { isSupabaseConfigured } from './services/supabase.service.js';
 
 dotenv.config();
@@ -70,7 +70,7 @@ app.get('/api/health', (req, res) => {
       strictSeparation: true,
       authProvider: 'Supabase GoTrue JWT',
       database: 'Supabase PostgreSQL (RLS)',
-      aiEngine: 'Google GenAI SDK (gemini-3.8-flash)'
+      aiEngine: `Google GenAI SDK (${MODEL_NAME})`
     },
     integrations: {
       geminiKeyConfigured: isGeminiConfigured,
@@ -99,7 +99,7 @@ app.listen(listenPort, '0.0.0.0', () => {
   Port: ${listenPort} (bound to 0.0.0.0)
   Environment: ${process.env.NODE_ENV || 'development'}
   Client URL: ${clientUrl}
-  Google GenAI (gemini-3.8-flash): ${isGeminiConfigured ? '🟢 Live API Key Active' : '🟡 Demo/Fallback Mode Active'}
+  Google GenAI (${MODEL_NAME}): ${isGeminiConfigured ? '🟢 Live API Key Active' : '🟡 Demo/Fallback Mode Active'}
   Supabase PostgreSQL / RLS Auth: ${isSupabaseConfigured ? '🟢 Live Supabase Connected' : '🟡 Local Test Store Active'}
 ======================================================
   `);

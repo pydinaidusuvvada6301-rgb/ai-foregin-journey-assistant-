@@ -19,15 +19,19 @@ export const isGeminiConfigured = Boolean(
 
 // SECURE: GoogleGenAI SDK is instantiated exclusively on the backend server
 export const ai = isGeminiConfigured ? new GoogleGenAI({ apiKey }) : null;
-export const MODEL_NAME = 'gemini-3.8-flash';
 
-console.log(`[VisaVoyage AI] Gemini Service Initialized. Key configured: ${isGeminiConfigured}`);
+// High-performance primary model with ample quota + resilient fallback cascade
+export const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest';
+export const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
+export const MODEL_NAME = PRIMARY_MODEL;
+
+console.log(`[VisaVoyage AI] Gemini Service Initialized. Key configured: ${isGeminiConfigured}, Primary model: ${MODEL_NAME}`);
 
 /**
- * Resilient Retry Helper with Exponential Backoff
- * Handles transient 503 / 429 Google API load spikes cleanly
+ * Resilient Retry Helper for transient Google API load spikes
+ * Fast fails on daily quota limits to avoid stalling the client
  */
-async function withGeminiRetry<T>(fn: () => Promise<T>, maxRetries = 2, baseDelayMs = 1200): Promise<T> {
+async function withGeminiRetry<T>(fn: () => Promise<T>, maxRetries = 1, baseDelayMs = 1000): Promise<T> {
   let lastError: any;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -35,22 +39,64 @@ async function withGeminiRetry<T>(fn: () => Promise<T>, maxRetries = 2, baseDela
     } catch (err: any) {
       lastError = err;
       const errMsg = String(err?.message || err);
-      const isRetryable =
-        err?.status === 503 ||
-        err?.status === 429 ||
-        errMsg.includes('high demand') ||
-        errMsg.includes('UNAVAILABLE') ||
-        errMsg.includes('RESOURCE_EXHAUSTED');
 
-      if (!isRetryable || attempt === maxRetries) {
+      // Fast-fail non-retryable errors immediately
+      const isQuotaExhausted =
+        errMsg.includes('Quota exceeded') ||
+        errMsg.includes('FreeTier') ||
+        errMsg.includes('RESOURCE_EXHAUSTED');
+      const isNotFound =
+        err?.status === 404 ||
+        errMsg.includes('not found') ||
+        errMsg.includes('no longer supported');
+
+      if (isQuotaExhausted || isNotFound) {
         throw err;
       }
 
-      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 400;
-      console.log(`[Gemini AI] Load management, retrying attempt ${attempt + 1}/${maxRetries} in ${Math.round(delay)}ms...`);
+      const isTransient =
+        err?.status === 503 ||
+        errMsg.includes('high demand') ||
+        errMsg.includes('UNAVAILABLE');
+
+      if (!isTransient || attempt === maxRetries) {
+        throw err;
+      }
+
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 300;
+      console.log(`[Gemini AI] Transient load, retrying in ${Math.round(delay)}ms...`);
       await new Promise((res) => setTimeout(res, delay));
     }
   }
+  throw lastError;
+}
+
+/**
+ * Execute a Gemini AI operation with automatic multi-model fallback cascade
+ */
+async function executeWithGeminiCascade<T>(
+  actionName: string,
+  generateFn: (model: string) => Promise<T>
+): Promise<T> {
+  if (!ai) {
+    throw new Error('Gemini API is not configured.');
+  }
+
+  const modelQueue = [PRIMARY_MODEL, ...FALLBACK_MODELS.filter((m) => m !== PRIMARY_MODEL)];
+  let lastError: any;
+
+  for (const model of modelQueue) {
+    try {
+      return await withGeminiRetry(async () => {
+        return await generateFn(model);
+      });
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = String(err?.message || err);
+      console.warn(`[Gemini AI] ${actionName}: Model "${model}" failed (${errMsg.slice(0, 90)}). Trying fallback model...`);
+    }
+  }
+
   throw lastError;
 }
 
@@ -95,9 +141,9 @@ Return strict JSON conforming to the following requirements:
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('generateItinerary', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [promptText],
           config: {
             systemInstruction: TRAVEL_SYSTEM_PROMPT,
@@ -158,9 +204,9 @@ Return strict JSON conforming to:
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('checkVisaRequirements', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [promptText],
           config: {
             systemInstruction: TRAVEL_SYSTEM_PROMPT,
@@ -214,9 +260,9 @@ Return strict JSON adhering to:
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('analyzeDocument', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [
             {
               role: 'user',
@@ -409,14 +455,14 @@ Context:
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('chatWithCopilot', async (model) => {
         const contents = messages.map((m) => ({
           role: m.role === 'assistant' ? 'model' : m.role,
           parts: [{ text: m.content }]
         }));
 
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents,
           config: {
             systemInstruction,
@@ -470,9 +516,9 @@ Return strict JSON matching the schema:
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('customizeDay', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [prompt],
           config: {
             systemInstruction: TRAVEL_SYSTEM_PROMPT,
@@ -530,9 +576,9 @@ Return strict JSON adhering to schema.
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('generateEmergencyCard', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [prompt],
           config: {
             systemInstruction: TRAVEL_SYSTEM_PROMPT,
@@ -575,9 +621,9 @@ Return strict JSON matching the schema.
 
   if (ai) {
     try {
-      return await withGeminiRetry(async () => {
+      return await executeWithGeminiCascade('generatePackingChecklist', async (model) => {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: [prompt],
           config: {
             systemInstruction: TRAVEL_SYSTEM_PROMPT,
