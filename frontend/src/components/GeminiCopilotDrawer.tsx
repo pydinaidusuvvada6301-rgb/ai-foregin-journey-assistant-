@@ -26,18 +26,22 @@ interface GeminiCopilotDrawerProps {
   onClose: () => void;
   destinationContext?: string;
   originCountryContext?: string;
+  travelPurposeContext?: string;
+  visaTypeContext?: string;
 }
 
 export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   isOpen,
   onClose,
   destinationContext,
-  originCountryContext
+  originCountryContext,
+  travelPurposeContext,
+  visaTypeContext
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: `### Welcome to Gemini Foreign Journey Copilot ✨\n\nI can provide clean, real-time advice tailored to your itinerary:\n\n* **Visa & Entry Rules**: eVisa turnaround, consular requirements, and passport validity.\n* **Airport Layover Protocols**: Transit visa exemptions, terminal transfers, and luggage re-check.\n* **Banned OTC Medications**: Specific country drug prohibitions and prescription requirements.\n* **Electrical & Voltage Specs**: Plug socket types and converter recommendations.\n* **Emergency Protocols**: 24/7 tourist police hotlines and embassy assistance.\n\n*Where are you heading, or what question can I answer for you today?*`,
+      content: `### Welcome to Gemini Foreign Journey Copilot ✨\n\nI can provide clean, real-time advice tailored to your itinerary:\n\n* **Visa & Entry Rules**: eVisa turnaround, consular requirements, and passport validity.\n* **Study & Work Guidelines**: Official student visas (e.g. Subclass 500), document checklists, and work rights.\n* **Airport Layover Protocols**: Transit visa exemptions, terminal transfers, and luggage re-check.\n* **Banned OTC Medications**: Specific country drug prohibitions and prescription requirements.\n* **Electrical & Voltage Specs**: Plug socket types and converter recommendations.\n* **Emergency Protocols**: 24/7 tourist police hotlines and embassy assistance.\n\n*Where are you heading, or what question can I answer for you today?*`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -51,9 +55,10 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const quickPrompts = [
-    { label: '🛂 Visa Terms', query: 'Explain the difference between an eVisa, Visa on Arrival (VoA), Electronic Travel Authorization (ETA), and Consular Sticker Visa.' },
+    { label: '🎓 Study Documents', query: `What documents do I need to study in ${destinationContext || 'Australia'}?` },
+    { label: '🛂 Visa & Entry', query: `What are the visa and entry requirements for traveling to ${destinationContext || 'my destination'}?` },
     { label: '📑 Document Prep', query: `What financial proof, employment letters, and bank statement requirements are typically needed for a visa to ${destinationContext || 'my destination'}?` },
-    { label: '💰 Budget & Timeline', query: `Help me structure a realistic daily travel budget breakdown and planning timeline for visiting ${destinationContext || 'my destination'}.` },
+    { label: '💰 Budget & Living', query: `Help me structure a realistic daily travel budget breakdown and planning timeline for visiting ${destinationContext || 'my destination'}.` },
     { label: '💊 Banned OTC Meds', query: `What common over-the-counter medications are strictly banned or restricted in ${destinationContext || 'my destination'}?` },
     { label: '⏳ Layover Transit Rules', query: `Do I need a transit visa for an airport layover when flying to ${destinationContext || 'international hubs'}?` },
     { label: '🔌 Plugs & Voltage', query: `What electrical plug socket type and voltage is used in ${destinationContext || 'my destination'}?` },
@@ -77,9 +82,12 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
     }
   }, [messages, isOpen]);
 
+  const isSubmittingRef = useRef(false);
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
-    if (!text || isLoading) return;
+    if (!text || isLoading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
     const userMsg: ChatMessage = {
       role: 'user',
@@ -93,15 +101,18 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
     setIsLoading(true);
 
     try {
-      // Format history for Gemini API
-      const apiPayload = newMessages.map(m => ({
+      // Format history for Gemini API: Bound to last 8 messages (4 turns) to conserve tokens
+      const boundedHistory = newMessages.slice(-8);
+      const apiPayload = boundedHistory.map(m => ({
         role: m.role === 'assistant' ? 'model' : m.role,
         content: m.content
       }));
 
       const res = await chatWithCopilot(apiPayload, {
         destination: destinationContext,
-        originCountry: originCountryContext
+        originCountry: originCountryContext,
+        travelPurpose: travelPurposeContext,
+        visaType: visaTypeContext
       });
 
       if (res?.data?.reply) {
@@ -116,21 +127,26 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
       }
     } catch (err: any) {
       console.error('Copilot request failed:', err);
+      const isRateLimited = err?.response?.status === 429;
+      const retrySec = err?.response?.data?.retryAfterSeconds;
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: '### ⚠️ Live Connection Notice\n\nUnable to reach the Gemini service at this moment. Please ensure the backend server is running and try again in a few seconds.',
+          content: isRateLimited
+            ? `### ⏳ Service High Demand Notice\n\nThe AI copilot is currently handling peak traffic. Please try asking again ${retrySec ? `in ${retrySec} seconds` : 'in a few moments'}.`
+            : '### ⚠️ Live Connection Notice\n\nUnable to reach the Gemini service at this moment. Please ensure the backend server is running and try again in a few seconds.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
   const handleRegenerateLast = () => {
-    if (isLoading) return;
+    if (isLoading || isSubmittingRef.current) return;
     // Find the last user message
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {

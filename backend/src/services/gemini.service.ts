@@ -9,6 +9,13 @@ import {
   EMERGENCY_CARD_SCHEMA,
   PACKING_CHECKLIST_SCHEMA
 } from './prompts.js';
+import {
+  withBoundedBackoff,
+  classifyGeminiError,
+  inFlightDeduplicator,
+  resilienceCache,
+  pruneChatHistory
+} from './gemini-resilience.js';
 
 dotenv.config();
 
@@ -28,51 +35,8 @@ export const MODEL_NAME = PRIMARY_MODEL;
 console.log(`[VisaVoyage AI] Gemini Service Initialized. Key configured: ${isGeminiConfigured}, Primary model: ${MODEL_NAME}`);
 
 /**
- * Resilient Retry Helper for transient Google API load spikes
- * Fast fails on daily quota limits to avoid stalling the client
- */
-async function withGeminiRetry<T>(fn: () => Promise<T>, maxRetries = 1, baseDelayMs = 1000): Promise<T> {
-  let lastError: any;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastError = err;
-      const errMsg = String(err?.message || err);
-
-      // Fast-fail non-retryable errors immediately
-      const isQuotaExhausted =
-        errMsg.includes('Quota exceeded') ||
-        errMsg.includes('FreeTier') ||
-        errMsg.includes('RESOURCE_EXHAUSTED');
-      const isNotFound =
-        err?.status === 404 ||
-        errMsg.includes('not found') ||
-        errMsg.includes('no longer supported');
-
-      if (isQuotaExhausted || isNotFound) {
-        throw err;
-      }
-
-      const isTransient =
-        err?.status === 503 ||
-        errMsg.includes('high demand') ||
-        errMsg.includes('UNAVAILABLE');
-
-      if (!isTransient || attempt === maxRetries) {
-        throw err;
-      }
-
-      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 300;
-      console.log(`[Gemini AI] Transient load, retrying in ${Math.round(delay)}ms...`);
-      await new Promise((res) => setTimeout(res, delay));
-    }
-  }
-  throw lastError;
-}
-
-/**
- * Execute a Gemini AI operation with automatic multi-model fallback cascade
+ * Execute a Gemini AI operation with automatic multi-model fallback cascade,
+ * bounded exponential backoff with jitter, and intelligent fast-failing on daily quota limits.
  */
 async function executeWithGeminiCascade<T>(
   actionName: string,
@@ -85,15 +49,35 @@ async function executeWithGeminiCascade<T>(
   const modelQueue = [PRIMARY_MODEL, ...FALLBACK_MODELS.filter((m) => m !== PRIMARY_MODEL)];
   let lastError: any;
 
-  for (const model of modelQueue) {
+  for (let i = 0; i < modelQueue.length; i++) {
+    const model = modelQueue[i];
     try {
-      return await withGeminiRetry(async () => {
+      return await withBoundedBackoff(async () => {
         return await generateFn(model);
+      }, {
+        actionName: `${actionName} [${model}]`,
+        maxRetries: 2,
+        baseDelayMs: 1200,
+        maxDelayMs: 6000
       });
     } catch (err: any) {
       lastError = err;
+      const classified = classifyGeminiError(err);
+
+      // Fast-fail immediately without cascading if project-wide daily quota is exhausted
+      // or billing is restricted, because all models share the same project quota and key.
+      if (classified.category === 'QUOTA_EXHAUSTED_DAILY' || classified.category === 'BILLING_RESTRICTION') {
+        console.warn(`[Gemini AI] ${actionName}: ${classified.message}. Halting multi-model cascade.`);
+        throw err;
+      }
+
       const errMsg = String(err?.message || err);
-      console.warn(`[Gemini AI] ${actionName}: Model "${model}" failed (${errMsg.slice(0, 90)}). Trying fallback model...`);
+      console.warn(`[Gemini AI] ${actionName}: Model "${model}" failed [${classified.category}] (${errMsg.slice(0, 90)}). Trying fallback model...`);
+
+      // Brief delay before fallback attempt to prevent instantaneous rate-limit burst
+      if (i < modelQueue.length - 1) {
+        await new Promise((res) => setTimeout(res, 600));
+      }
     }
   }
 
@@ -101,7 +85,7 @@ async function executeWithGeminiCascade<T>(
 }
 
 /**
- * Generate comprehensive AI travel itinerary
+ * Generate comprehensive AI travel itinerary with in-flight deduplication and TTL caching
  */
 export async function generateItineraryAI(payload: {
   destination: string;
@@ -112,8 +96,18 @@ export async function generateItineraryAI(payload: {
   travelerPreferences?: string;
 }) {
   const { destination, durationDays, budgetRange, travelPurpose, originCountry, travelerPreferences } = payload;
+  const cacheKey = `itin:${(destination || '').trim().toLowerCase()}:${durationDays}:${(budgetRange || '').trim().toLowerCase()}:${(travelPurpose || '').trim().toLowerCase()}`;
 
-  const promptText = `
+  // 1. Check existing cached itinerary
+  const cached = resilienceCache.get(cacheKey);
+  if (cached) {
+    console.log(`[Gemini Cache] Serving cached itinerary for "${destination}" (${durationDays} days)`);
+    return cached;
+  }
+
+  // 2. Deduplicate in-flight concurrent requests for identical itinerary queries
+  return inFlightDeduplicator.run(cacheKey, async () => {
+    const promptText = `
 You are generating a personalized, actionable international travel itinerary.
 Destination: ${destination}
 Origin Country: ${originCountry || 'Unspecified'}
@@ -139,36 +133,43 @@ Return strict JSON conforming to the following requirements:
 - emergencyContacts: array of emergency numbers (police, ambulance, tourist hotline, emergency consulate info)
 `;
 
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('generateItinerary', async (model) => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [promptText],
-          config: {
-            systemInstruction: TRAVEL_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            responseSchema: ITINERARY_JSON_SCHEMA
+    if (ai) {
+      try {
+        const result = await executeWithGeminiCascade('generateItinerary', async (model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [promptText],
+            config: {
+              systemInstruction: TRAVEL_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              responseSchema: ITINERARY_JSON_SCHEMA
+            }
+          });
+
+          const text = response.text;
+          if (text) {
+            return JSON.parse(text);
           }
+          throw new Error('Empty itinerary response');
         });
 
-        const text = response.text;
-        if (text) {
-          return JSON.parse(text);
-        }
-        throw new Error('Empty itinerary response');
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Live API call failed, falling back to smart dynamic generator:', err?.message || err);
+        // Cache valid result for 30 minutes
+        resilienceCache.set(cacheKey, result, 30 * 60 * 1000);
+        return result;
+      } catch (err: any) {
+        console.error('[Gemini AI] Live API call failed, falling back to smart dynamic generator:', err?.message || err);
+      }
     }
-  }
 
-  // Realistic dynamic generator fallback
-  return getFallbackItinerary(payload);
+    // Realistic dynamic generator fallback
+    const fallback = getFallbackItinerary(payload);
+    resilienceCache.set(cacheKey, fallback, 10 * 60 * 1000);
+    return fallback;
+  });
 }
 
 /**
- * Perform comprehensive visa requirements assessment
+ * Perform comprehensive visa requirements assessment with in-flight deduplication and caching
  */
 export async function checkVisaRequirementsAI(payload: {
   passportCountry: string;
@@ -178,8 +179,18 @@ export async function checkVisaRequirementsAI(payload: {
   travelPurpose?: string;
 }) {
   const { passportCountry, destinationCountry, currentResidency, intendedStayDuration, travelPurpose } = payload;
+  const cacheKey = `visa:${(passportCountry || '').trim().toLowerCase()}:${(destinationCountry || '').trim().toLowerCase()}:${(travelPurpose || 'tourism').trim().toLowerCase()}`;
 
-  const promptText = `
+  // 1. Check existing cached policy assessment
+  const cached = resilienceCache.get(cacheKey);
+  if (cached) {
+    console.log(`[Gemini Cache] Serving cached visa policy for "${passportCountry}" -> "${destinationCountry}"`);
+    return cached;
+  }
+
+  // 2. In-flight deduplication for identical concurrent visa inquiries
+  return inFlightDeduplicator.run(cacheKey, async () => {
+    const promptText = `
 Perform a high-security, official immigration and visa policy assessment for:
 Passport Origin: ${passportCountry}
 Destination Country: ${destinationCountry}
@@ -208,31 +219,38 @@ Return strict JSON conforming to:
 - lastVerifiedDate: "${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}"
 `;
 
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('checkVisaRequirements', async (model) => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [promptText],
-          config: {
-            systemInstruction: TRAVEL_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            responseSchema: VISA_CHECK_JSON_SCHEMA
+    if (ai) {
+      try {
+        const result = await executeWithGeminiCascade('checkVisaRequirements', async (model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [promptText],
+            config: {
+              systemInstruction: TRAVEL_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              responseSchema: VISA_CHECK_JSON_SCHEMA
+            }
+          });
+
+          const text = response.text;
+          if (text) {
+            return JSON.parse(text);
           }
+          throw new Error('Empty visa check response');
         });
 
-        const text = response.text;
-        if (text) {
-          return JSON.parse(text);
-        }
-        throw new Error('Empty visa check response');
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Live API call failed, falling back to smart dynamic generator:', err?.message || err);
+        // Cache valid consular assessment for 60 minutes
+        resilienceCache.set(cacheKey, result, 60 * 60 * 1000);
+        return result;
+      } catch (err: any) {
+        console.error('[Gemini AI] Live API call failed, falling back to smart dynamic generator:', err?.message || err);
+      }
     }
-  }
 
-  return getFallbackVisaCheck(payload);
+    const fallback = getFallbackVisaCheck(payload);
+    resilienceCache.set(cacheKey, fallback, 15 * 60 * 1000);
+    return fallback;
+  });
 }
 
 /**
@@ -545,42 +563,50 @@ export async function chatWithGeminiAI(payload: {
     originCountry?: string;
     destination?: string;
     preferences?: string;
+    travelPurpose?: string;
+    visaType?: string;
+    residency?: string;
   };
 }) {
   const { messages, context } = payload;
-  const systemInstruction = `${TRAVEL_SYSTEM_PROMPT}
-You are functioning as the traveler's dedicated AI Foreign Journey Copilot powered by Google Gemini.
-Format your responses identically to the clean, structured output of the official Google Gemini application:
-1. Structure: Start immediately with a direct, clear introductory sentence. Avoid filler like "Sure, I'd be happy to assist you with that!".
-2. Section Headings: Use clean Markdown headers (### Section Title) to cleanly divide topics.
-3. Bullet Points: Use clear bullet points with bold prefixes (* **Key Element**: Actionable explanation) for maximum scanability and elegance.
-4. Tables: Whenever comparing options, rules, costs, or scenarios, generate a clean Markdown table with headers.
-5. Important Callouts: Use blockquotes (> **Important Advisory**: ...) for critical border rules, penalties, or customs laws.
-6. Actionable Takeaways: End with 1-2 practical, high-value travel tips.
-7. Visa & Document Intelligence:
-   - When explaining visa policies or processes, clearly differentiate between eVisa, Visa on Arrival (VoA), Electronic Travel Authorization (ETA), and Consular Sticker Visas.
-   - For document preparation inquiries, outline required bank balance thresholds, ties to home country, flight reservations vs confirmed tickets, and travel insurance coverage.
-   - Always link or cite official sovereign immigration authorities (e.g., US DOS, UK Visas & Immigration, Schengen consulates, Japan MOFA) or IATA Timatic.
-   - If a rule or policy is changing or ambiguous, explicitly state the uncertainty instead of guessing or fabricating numbers.
-   - If the user provides raw sensitive numbers (such as passport numbers or credit card details), instruct them to redact them for privacy.
+  const systemInstruction = `You are VisaVoyage AI, functioning as the traveler's dedicated AI Foreign Journey Copilot powered by Google Gemini.
+Your responses must be accurate, practical, and tailored specifically to the traveler's destination and citizenship.
+FORMAT: Output your response in clean, beautifully structured GitHub-flavored Markdown with clean headers (###), bold bullet points, and tables where helpful. Do NOT output a JSON wrapper.
+
+CRITICAL OPERATIONAL INSTRUCTIONS:
+1. Immediate Direct Relevance:
+   - Analyze the customer's actual query and answer it directly in the very first sentence.
+   - Do NOT give generic filler, repeated intros, or vague generalities.
+2. Contextual Continuity:
+   - Maintain context across follow-up questions in the chat session.
+   - Tailor guidance to the currently active destination (${context?.destination || 'Global / Unspecified'}) and passport nationality (${context?.originCountry || 'Unspecified'}).
+3. Mandatory Clarifying Questions:
+   - If essential criteria are missing (such as citizenship/passport country, travel purpose, intended course level, duration of stay, or financial status), you MUST provide the best verified general baseline and then explicitly ask 1-3 targeted clarifying questions under "### ❓ Key Clarifications Needed".
+4. Differentiate Verified Information from AI Estimates:
+   - "### 🏛️ Verified Official Immigration Requirements": Present statutory border rules, official visa subclasses, mandatory documents (e.g. CoE, OSHC, I-20, CAS), and cite official government immigration portals (e.g., https://immi.homeaffairs.gov.au for Australia, https://travel.state.gov for US, https://www.gov.uk for UK, https://www.mofa.go.jp for Japan).
+   - "### 💡 Practical Guidance & AI Estimates": Label living costs, accommodation estimates, processing times, and tips as indicative guidance.
+5. Realistic & Trustworthy:
+   - Never promise visa approval or invent fees. Always point to official government fee schedules.
+   - If sensitive personal documents (passport numbers, SSN, bank credentials) appear, warn the traveler to keep them private.
 
 Context:
-- Traveler Origin / Passport: ${context?.originCountry || 'Unspecified'}
-- Current / Planned Destination: ${context?.destination || 'Global / Unspecified'}
-- Preferences: ${context?.preferences || 'None specified'}
+- Traveler Origin / Passport Nationality: ${context?.originCountry || 'Unspecified (ask if visa rules depend on it)'}
+- Current / Planned Destination: ${context?.destination || 'Unspecified'}
+- Purpose of Travel: ${context?.travelPurpose || 'General Travel / Study / Work / Tourism'}
+- Visa Category: ${context?.visaType || 'Unspecified'}
+- Legal Residency: ${context?.residency || 'Unspecified'}
+- User Preferences: ${context?.preferences || 'None specified'}
 `;
 
   if (ai) {
     try {
       return await executeWithGeminiCascade('chatWithCopilot', async (model) => {
-        const contents = messages.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : m.role,
-          parts: [{ text: m.content }]
-        }));
+        // Prune and bound chat conversation history to avoid unbounded token accumulation
+        const prunedContents = pruneChatHistory(messages, 4);
 
         const response = await ai.models.generateContent({
           model,
-          contents,
+          contents: prunedContents,
           config: {
             systemInstruction,
             temperature: 0.7
@@ -614,7 +640,16 @@ export async function customizeDayAI(payload: {
   budgetRange?: string;
 }) {
   const { destination, dayNumber, currentTheme, currentActivities, customizationInstruction, budgetRange } = payload;
-  const prompt = `
+  const cacheKey = `day:${(destination || '').trim().toLowerCase()}:${dayNumber}:${(customizationInstruction || '').trim().toLowerCase()}`;
+
+  const cached = resilienceCache.get(cacheKey);
+  if (cached) {
+    console.log(`[Gemini Cache] Serving cached day customization for Day ${dayNumber} in ${destination}`);
+    return cached;
+  }
+
+  return inFlightDeduplicator.run(cacheKey, async () => {
+    const prompt = `
 You are customizing Day ${dayNumber} of an itinerary in ${destination}.
 Budget Tier: ${budgetRange || 'Moderate'}
 Current Theme: ${currentTheme || 'Exploration'}
@@ -631,41 +666,46 @@ Return strict JSON matching the schema:
 - customizationNotes: 1-2 sentence explanation of adjustments made
 `;
 
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('customizeDay', async (model) => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [prompt],
-          config: {
-            systemInstruction: TRAVEL_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            responseSchema: CUSTOMIZE_DAY_SCHEMA
-          }
+    if (ai) {
+      try {
+        const result = await executeWithGeminiCascade('customizeDay', async (model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [prompt],
+            config: {
+              systemInstruction: TRAVEL_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              responseSchema: CUSTOMIZE_DAY_SCHEMA
+            }
+          });
+          const text = response.text;
+          if (text) return JSON.parse(text);
+          throw new Error('Empty response');
         });
-        const text = response.text;
-        if (text) return JSON.parse(text);
-        throw new Error('Empty response');
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Day Customization failed:', err?.message || err);
+        resilienceCache.set(cacheKey, result, 30 * 60 * 1000);
+        return result;
+      } catch (err: any) {
+        console.error('[Gemini AI] Day Customization failed:', err?.message || err);
+      }
     }
-  }
 
-  return {
-    day: dayNumber,
-    theme: `${customizationInstruction} in ${destination}`,
-    activities: [
-      `Morning: Tailored exploration centered around "${customizationInstruction}"`,
-      `Afternoon: Specialized local discovery and authentic culture experience`,
-      `Evening: Relaxed dinner and neighborhood walk matched to your customized pace`
-    ],
-    customizationNotes: `Updated Day ${dayNumber} according to: "${customizationInstruction}".`
-  };
+    const fallback = {
+      day: dayNumber,
+      theme: `${customizationInstruction} in ${destination}`,
+      activities: [
+        `Morning: Tailored exploration centered around "${customizationInstruction}"`,
+        `Afternoon: Specialized local discovery and authentic culture experience`,
+        `Evening: Relaxed dinner and neighborhood walk matched to your customized pace`
+      ],
+      customizationNotes: `Updated Day ${dayNumber} according to: "${customizationInstruction}".`
+    };
+    resilienceCache.set(cacheKey, fallback, 10 * 60 * 1000);
+    return fallback;
+  });
 }
 
 /**
- * Localized Traveler Emergency & Consular Safety Card
+ * Localized Traveler Emergency & Consular Safety Card with Caching
  */
 export async function generateEmergencyCardAI(payload: {
   destination: string;
@@ -673,7 +713,16 @@ export async function generateEmergencyCardAI(payload: {
   medicalNotes?: string;
 }) {
   const { destination, originCountry, medicalNotes } = payload;
-  const prompt = `
+  const cacheKey = `emerg:${(destination || '').trim().toLowerCase()}:${(originCountry || '').trim().toLowerCase()}:${(medicalNotes || '').trim().toLowerCase()}`;
+
+  const cached = resilienceCache.get(cacheKey);
+  if (cached) {
+    console.log(`[Gemini Cache] Serving cached emergency card for ${destination}`);
+    return cached;
+  }
+
+  return inFlightDeduplicator.run(cacheKey, async () => {
+    const prompt = `
 Generate a critical, localized Traveler Emergency & Safety Card for a traveler from ${originCountry || 'International'} visiting ${destination}.
 Provide:
 - destination: "${destination}"
@@ -691,32 +740,37 @@ Provide:
 Return strict JSON adhering to schema.
 `;
 
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('generateEmergencyCard', async (model) => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [prompt],
-          config: {
-            systemInstruction: TRAVEL_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            responseSchema: EMERGENCY_CARD_SCHEMA
-          }
+    if (ai) {
+      try {
+        const result = await executeWithGeminiCascade('generateEmergencyCard', async (model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [prompt],
+            config: {
+              systemInstruction: TRAVEL_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              responseSchema: EMERGENCY_CARD_SCHEMA
+            }
+          });
+          const text = response.text;
+          if (text) return JSON.parse(text);
+          throw new Error('Empty response');
         });
-        const text = response.text;
-        if (text) return JSON.parse(text);
-        throw new Error('Empty response');
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Emergency card generation failed:', err?.message || err);
+        resilienceCache.set(cacheKey, result, 2 * 60 * 60 * 1000);
+        return result;
+      } catch (err: any) {
+        console.error('[Gemini AI] Emergency card generation failed:', err?.message || err);
+      }
     }
-  }
 
-  return getFallbackEmergencyCard(destination);
+    const fallback = getFallbackEmergencyCard(destination);
+    resilienceCache.set(cacheKey, fallback, 30 * 60 * 1000);
+    return fallback;
+  });
 }
 
 /**
- * Destination & Weather-Aware Smart Packing Checklist
+ * Destination & Weather-Aware Smart Packing Checklist with Caching
  */
 export async function generatePackingChecklistAI(payload: {
   destination: string;
@@ -725,7 +779,16 @@ export async function generatePackingChecklistAI(payload: {
   seasonOrMonth?: string;
 }) {
   const { destination, durationDays, travelPurpose, seasonOrMonth } = payload;
-  const prompt = `
+  const cacheKey = `pack:${(destination || '').trim().toLowerCase()}:${durationDays}:${(travelPurpose || '').trim().toLowerCase()}:${(seasonOrMonth || '').trim().toLowerCase()}`;
+
+  const cached = resilienceCache.get(cacheKey);
+  if (cached) {
+    console.log(`[Gemini Cache] Serving cached packing checklist for ${destination}`);
+    return cached;
+  }
+
+  return inFlightDeduplicator.run(cacheKey, async () => {
+    const prompt = `
 Generate a comprehensive, destination-tailored packing checklist for ${destination}.
 Duration: ${durationDays} days
 Purpose: ${travelPurpose}
@@ -736,34 +799,142 @@ Include exact electrical plug types (Type A/C/G etc.), local cultural dress code
 Return strict JSON matching the schema.
 `;
 
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('generatePackingChecklist', async (model) => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [prompt],
-          config: {
-            systemInstruction: TRAVEL_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            responseSchema: PACKING_CHECKLIST_SCHEMA
-          }
+    if (ai) {
+      try {
+        const result = await executeWithGeminiCascade('generatePackingChecklist', async (model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [prompt],
+            config: {
+              systemInstruction: TRAVEL_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              responseSchema: PACKING_CHECKLIST_SCHEMA
+            }
+          });
+          const text = response.text;
+          if (text) return JSON.parse(text);
+          throw new Error('Empty response');
         });
-        const text = response.text;
-        if (text) return JSON.parse(text);
-        throw new Error('Empty response');
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Packing checklist failed:', err?.message || err);
+        resilienceCache.set(cacheKey, result, 2 * 60 * 60 * 1000);
+        return result;
+      } catch (err: any) {
+        console.error('[Gemini AI] Packing checklist failed:', err?.message || err);
+      }
     }
-  }
 
-  return getFallbackPackingChecklist(destination);
+    const fallback = getFallbackPackingChecklist(destination);
+    resilienceCache.set(cacheKey, fallback, 30 * 60 * 1000);
+    return fallback;
+  });
 }
 
 function getFallbackChatResponse(query: string, context?: any) {
   const dest = context?.destination || 'your destination';
+  const origin = context?.originCountry || 'your passport country';
   const q = (query || '').toLowerCase();
+  const isAustralia = dest.toLowerCase().includes('australia') || q.includes('australia');
 
+  // 1. Study / Student Visa Inquiries
+  if (q.includes('study') || q.includes('student') || q.includes('university') || q.includes('course') || q.includes('degree')) {
+    if (isAustralia) {
+      return {
+        reply: `### 🎓 Studying in Australia: Student Visa (Subclass 500) Overview
+
+To study in Australia as an international student, you must apply for and be granted a **Student Visa (Subclass 500)** through the Australian Department of Home Affairs.
+
+### 🏛️ Verified Official Immigration Requirements
+* **Confirmation of Enrolment (CoE)**: You must have an active electronic CoE issued by a CRICOS-registered Australian education provider.
+* **Genuine Student (GS) Requirement**: Written responses demonstrating how your chosen course fits your academic background, career trajectory, and economic incentives to return home.
+* **Overseas Student Health Cover (OSHC)**: Continuous medical health insurance coverage valid from your date of arrival until visa expiration.
+* **Evidence of Financial Capacity**: Proof of sufficient funds covering tuition fees, travel costs, and minimum 12-month living expenses (**AUD $29,710**).
+* **English Language Proficiency**: Minimum test score in IELTS Academic (overall 6.0–6.5), PTE Academic (50+), or approved equivalent, unless passport exempt.
+* **Biometrics & Health Examination**: Panel physician chest X-ray and medical examination depending on your citizenship and travel history.
+
+### 💡 Practical Guidance & AI Estimates
+* **Living Costs**: Plan for roughly **AUD $2,000–$2,800/month** in major student hubs (Sydney, Melbourne) or **AUD $1,600–$2,100/month** in regional cities (Adelaide, Perth, Brisbane).
+* **Work Rights**: Student visa holders are currently permitted to work up to **48 hours per fortnight** during active study terms and unlimited hours during scheduled course breaks.
+* **Official Application Portal**: [Australian Department of Home Affairs — Student Visa (Subclass 500)](https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/student-500)
+
+### ❓ Key Clarifications Needed
+To give you exact document checklists and financial thresholds:
+1. What is your **country of citizenship / passport**? (Financial and English evidence requirements vary by Document Checklist Tool risk rating)
+2. What **course level** are you enrolling in (Undergraduate, Postgraduate Research, VET / Vocational, or ELICOS language)?
+3. Are you applying **offshore** (from your home country) or **onshore** (currently within Australia)?`,
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    return {
+      reply: `### 🎓 International Study Visa Guidelines for ${dest}
+
+### 🏛️ Verified Official Immigration Requirements
+* **Official Acceptance Letter / CoE**: Unconditional acceptance from an accredited national higher education institution.
+* **Student Health Insurance**: Compulsory international student medical cover covering your entire stay.
+* **Financial Solvency Proof**: Bank statements or certified sponsorship letters proving sufficient funds for tuition and living maintenance.
+* **Academic Credentials & Language**: Certified transcripts and recognized language test results (IELTS, TOEFL, or local national language test).
+* **Clear Police Records**: Background verification and biometric clearance.
+
+### 💡 Practical Guidance & AI Estimates
+* **Tuition & Living**: Living costs typically range from **$900–$2,200 USD/month** depending on metropolitan vs. regional university locations.
+* **Part-time Employment**: Many countries permit international students to work 20 hours/week during academic terms.
+
+### ❓ Key Clarifications Needed
+1. What is your **passport nationality**?
+2. Which university or institution in **${dest}** are you attending?
+3. What is your planned **intake date** and study duration?`,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // 2. Document & Application Preparation Checklists
+  if (q.includes('document') || q.includes('requirement') || q.includes('checklist') || q.includes('paperwork')) {
+    return {
+      reply: `### 📑 Comprehensive Travel & Visa Document Checklist for ${dest}
+
+### 🏛️ Verified Official Border & Consular Protocols
+* **Passport**: Minimum **6 months remaining validity** beyond intended departure date, with at least 2 consecutive blank pages.
+* **Financial Self-Sufficiency**: Last 3 to 6 months of original bank statements stamped by your financial institution.
+* **Ties to Home Country**: Employment verification letter with approved leave dates, business registration, or property ownership documents.
+* **Travel Itinerary**: Confirmed return or onward flight itinerary (do not buy non-refundable tickets before visa issuance).
+* **Accommodation Voucher**: Confirmed hotel reservations or formal invitation letter with host's identity copy.
+* **Travel Medical Insurance**: International medical policy with minimum coverage (e.g. €30,000 for Schengen countries).
+
+### 💡 Practical Guidance & AI Estimates
+* **Certified Translations**: Any documents not in English or the destination's official language must be accompanied by an official certified translation.
+* **Appointment Lead Times**: Book consular biometric appointments 6 to 10 weeks in advance during peak travel seasons.
+
+### ❓ Key Clarifications Needed
+1. What is your **passport country of citizenship**?
+2. What is your **primary purpose of journey** (Tourism, Business, Study, or Employment)?`,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // 3. Costs, Budget & Accommodation Inquiries
+  if (q.includes('cost') || q.includes('budget') || q.includes('expense') || q.includes('price') || q.includes('hotel') || q.includes('accommodation')) {
+    return {
+      reply: `### 💰 Budget & Cost Planning Breakdown for ${dest}
+
+### 💡 Practical Guidance & AI Estimates
+| Expense Category | Budget Traveler | Moderate / Comfortable | Luxury / High-End |
+| :--- | :--- | :--- | :--- |
+| **Accommodation / Night** | $35 – $70 USD | $110 – $220 USD | $350+ USD |
+| **Daily Dining & Groceries** | $18 – $35 USD | $45 – $85 USD | $150+ USD |
+| **Public Transit & Taxis** | $6 – $12 USD | $18 – $35 USD | $60+ USD |
+| **Activities & Sightseeing** | $10 – $25 USD | $30 – $60 USD | $100+ USD |
+| **Total Daily Estimate** | **~$70 – $140 / day** | **~$200 – $400 / day** | **~$660+ / day** |
+
+* **Local Currency**: Use the built-in **Currency Converter** tool to calculate live exchange rates against your home currency.
+* **Card Payments vs. Cash**: Most urban hubs accept contactless Visa/Mastercard; carry 10–15% in cash for local markets and small merchants.
+
+### ❓ Key Clarifications Needed
+1. How many **days or weeks** are you planning to travel?
+2. What is your preferred **travel style** (Backpacker, Mid-range Comfort, or Luxury)?`,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // 4. Over-the-counter & Banned Medications
   if (q.includes('med') || q.includes('otc') || q.includes('drug') || q.includes('pill')) {
     return {
       reply: `### 💊 Medication & OTC Regulations for ${dest}\n\nMany countries enforce strict import limits on common over-the-counter and prescription pharmaceuticals:\n\n* **Restricted Active Ingredients**: Decongestants containing pseudoephedrine/ephedrine, strong analgesics with codeine, and psychotropics (including ADHD medication) are heavily regulated or banned in many regions.\n* **Doctor's Prescription**: Always carry an official physician's prescription letter in English detailing your full name, dosage, and medical necessity.\n* **Original Packaging**: Retain all tablets and liquids in their original labeled manufacturer pharmacy containers.\n* **Supply Limits**: Do not carry more than a 30-day personal supply without advance written permit from the destination's health ministry.\n\n> **Important Advisory**: Never transport undeclared restricted medications in checked baggage. Always carry them in your personal hand luggage with documentation ready for customs inspection.`,
@@ -771,6 +942,7 @@ function getFallbackChatResponse(query: string, context?: any) {
     };
   }
 
+  // 5. Layover & Transit Visa
   if (q.includes('layover') || q.includes('transit') || q.includes('transfer')) {
     return {
       reply: `### ⏳ International Layover & Transit Visa Protocols\n\nWhen connecting through international airports en route to ${dest}, transit rules vary based on booking structure:\n\n| Connection Type | Transit Visa Required? | Key Border Condition |\n| :--- | :--- | :--- |\n| **Airside Transit (< 12–24h)** | Typically No | Must remain within the sterile international transit terminal without clearing immigration. |\n| **Self-Transfer / Separate Tickets** | Usually Yes | You must pass border control to claim baggage and re-check with your next airline. |\n| **Airport Change / Overnight Stay** | Yes (Transit / Tourist Visa) | Required when transferring between different metropolitan airports or staying at a city hotel. |\n\n* **Luggage Interlining**: Verify at your origin airport check-in desk whether your baggage tags show your final arrival airport.\n* **Schengen Transit**: Two consecutive connecting stops within Europe's Schengen zone are classified as internal travel and require a valid Schengen visa.`,
@@ -778,6 +950,7 @@ function getFallbackChatResponse(query: string, context?: any) {
     };
   }
 
+  // 6. Plugs and Voltage
   if (q.includes('plug') || q.includes('power') || q.includes('voltage') || q.includes('socket')) {
     return {
       reply: `### 🔌 Electrical & Power Specifications for ${dest}\n\n* **Plug Types**: Common international configurations include Type C/E/F (European two-pin), Type G (UK rectangular three-pin), or Type A/B (US two-pin). Carry a **multi-region universal adapter** with built-in USB-C Power Delivery ports.\n* **Standard Voltage**: Verify whether local power grids operate on **220V–240V at 50Hz** (Europe, Asia, UK, Australia) versus **110V–120V at 60Hz** (US, Canada, Japan).\n* **Device Compatibility**: Laptops, phones, and modern camera batteries are dual-voltage (100V–240V). High-wattage heating devices (hair straighteners, hair dryers) require a dedicated step-down converter.\n\n> **Traveler Tip**: Carry all high-capacity portable power banks (under 100Wh / 27,000mAh) strictly in your carry-on luggage due to international airline cabin regulations.`,
@@ -785,13 +958,30 @@ function getFallbackChatResponse(query: string, context?: any) {
     };
   }
 
-  if (q.includes('visa') || q.includes('passport')) {
+  // 7. General Visa & Entry
+  if (q.includes('visa') || q.includes('passport') || q.includes('entry') || q.includes('immigration')) {
     return {
-      reply: `### 🛂 Visa & Passport Guidelines for ${dest}\n\n* **Passport Validity Window**: Ensure your passport has at least **6 months validity** remaining beyond your scheduled arrival date, alongside at least **2 consecutive blank stamp pages**.\n* **Border Documentation Checklist**:\n  * Confirmed return or onward international flight ticket.\n  * Proof of verified accommodation (hotel booking voucher).\n  * Recent bank statement proving financial self-sufficiency ($60–$100 USD/day).\n* **Digital Entry Declarations**: Check if an electronic immigration card (TDAC/arrival card) must be submitted online 48–72 hours prior to departure.\n\n> **Advisory**: Overstaying your authorized duration results in severe penalties, fines, and potential re-entry bans.`,
+      reply: `### 🛂 Sovereign Visa & Entry Clearance for ${dest}
+
+### 🏛️ Verified Official Immigration Protocols
+* **Passport Validity Window**: Ensure your passport has at least **6 months validity** remaining beyond your scheduled arrival date, alongside at least **2 consecutive blank stamp pages**.
+* **Mandatory Entry Documentation**:
+  * Confirmed return or onward international ticket to another country.
+  * Proof of verified accommodation (hotel booking voucher or host address).
+  * Proof of sufficient financial funds for your planned length of stay.
+* **Official Immigration Portals**: Always submit visa applications directly through official government websites or embassies rather than unofficial third-party visa services.
+
+### 💡 Practical Guidance & AI Estimates
+* **Processing Timelines**: Allow 10 to 20 working days for consular visas, or 48 to 72 hours for eVisa / Electronic Travel Authorizations.
+
+### ❓ Key Clarifications Needed
+1. What is your **country of passport / citizenship**?
+2. What is your **travel purpose** (Tourism, Business, Work, Study, or Transit)?`,
       timestamp: new Date().toISOString()
     };
   }
 
+  // 8. Emergency and Safety
   if (q.includes('emergency') || q.includes('police') || q.includes('hospital') || q.includes('scam')) {
     return {
       reply: `### 🚨 Emergency Protocols & Tourist Safety in ${dest}\n\n| Service Hub | Primary Contact | Recommended Protocol |\n| :--- | :--- | :--- |\n| **Emergency Dispatch** | 112 / 911 / Local Hub | State your GPS coordinates clearly and request English-speaking support. |\n| **Tourist Police** | Regional Tourist Hotline | Report non-urgent issues, theft, extortion, or taxi disputes. |\n| **Consulate / Embassy** | Diplomatic Mission Hotline | Contact immediately in the event of lost passports or detention. |\n\n* **Emergency Redundancy**: Keep a physical photocopy of your passport's bio-page in your hotel room safe and keep an encrypted digital copy on secure cloud storage.\n* **Common Scams**: Be alert to unmetered airport taxis, distraction theft in crowded metro terminals, and friendly stranger invitations to private tea or drinks ceremonies.`,

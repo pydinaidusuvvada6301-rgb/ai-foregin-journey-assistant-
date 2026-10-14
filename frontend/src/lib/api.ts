@@ -127,31 +127,81 @@ function isNetworkOrBackendOffline(err: any): boolean {
   );
 }
 
-// AI Orchestration endpoints with resilient offline intelligence fallback
-export async function generateItinerary(payload: ItineraryInput) {
-  try {
-    const response = await apiClient.post('/ai/itinerary', payload);
-    return response.data;
-  } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side travel intelligence engine.');
-      return { success: true, data: getOfflineItinerary(payload), isOfflineFallback: true };
-    }
-    throw err;
+function shouldServeOfflineFallback(err: any): boolean {
+  if (isNetworkOrBackendOffline(err)) return true;
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  // If backend returns 429 with daily quota exhausted or fallback flag
+  if (status === 429 && (data?.isQuotaExhausted || data?.fallbackAvailable)) {
+    return true;
   }
+  return false;
+}
+
+// Client-side in-flight deduplication and result caching
+const clientCache = new Map<string, { data: any; expiresAt: number }>();
+const clientInFlight = new Map<string, Promise<any>>();
+
+async function dedupeAndCache<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const cached = clientCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+  const existing = clientInFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+  const promise = fn().then((res) => {
+    clientCache.set(key, { data: res, expiresAt: Date.now() + ttlMs });
+    return res;
+  }).finally(() => {
+    clientInFlight.delete(key);
+  });
+  clientInFlight.set(key, promise);
+  return promise;
+}
+
+// AI Orchestration endpoints with resilient offline intelligence fallback and client deduplication
+export async function generateItinerary(payload: ItineraryInput) {
+  const key = `client_itin:${payload.destination.toLowerCase().trim()}:${payload.durationDays}:${payload.budgetRange}`;
+  return dedupeAndCache(key, 15 * 60 * 1000, async () => {
+    try {
+      const response = await apiClient.post('/ai/itinerary', payload);
+      return response.data;
+    } catch (err: any) {
+      if (shouldServeOfflineFallback(err)) {
+        console.warn('[VisaVoyage] Serving client-side travel intelligence engine due to backend/quota status.');
+        return {
+          success: true,
+          data: getOfflineItinerary(payload),
+          isOfflineFallback: true,
+          rateLimitNotice: err?.response?.data?.message || null
+        };
+      }
+      throw err;
+    }
+  });
 }
 
 export async function checkVisaRequirements(payload: VisaCheckInput) {
-  try {
-    const response = await apiClient.post('/ai/visa-check', payload);
-    return response.data;
-  } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side immigration intelligence engine.');
-      return { success: true, data: getOfflineVisaCheck(payload), isOfflineFallback: true };
+  const key = `client_visa:${payload.passportCountry.toLowerCase().trim()}:${payload.destinationCountry.toLowerCase().trim()}`;
+  return dedupeAndCache(key, 30 * 60 * 1000, async () => {
+    try {
+      const response = await apiClient.post('/ai/visa-check', payload);
+      return response.data;
+    } catch (err: any) {
+      if (shouldServeOfflineFallback(err)) {
+        console.warn('[VisaVoyage] Serving client-side immigration intelligence engine due to backend/quota status.');
+        return {
+          success: true,
+          data: getOfflineVisaCheck(payload),
+          isOfflineFallback: true,
+          rateLimitNotice: err?.response?.data?.message || null
+        };
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 export async function analyzeDocument(formData: FormData) {
@@ -163,9 +213,14 @@ export async function analyzeDocument(formData: FormData) {
     });
     return response.data;
   } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      console.warn('[VisaVoyage] Remote backend offline/unreachable. Serving client-side document verification engine.');
-      return { success: true, data: getOfflineDocumentAnalysis(), isOfflineFallback: true };
+    if (shouldServeOfflineFallback(err)) {
+      console.warn('[VisaVoyage] Serving client-side document verification engine due to backend/quota status.');
+      return {
+        success: true,
+        data: getOfflineDocumentAnalysis(),
+        isOfflineFallback: true,
+        rateLimitNotice: err?.response?.data?.message || null
+      };
     }
     throw err;
   }
@@ -174,15 +229,29 @@ export async function analyzeDocument(formData: FormData) {
 // Deep Gemini AI Integration Endpoints
 export async function chatWithCopilot(
   messages: Array<{ role: string; content: string }>,
-  context?: { originCountry?: string; destination?: string; preferences?: string }
+  context?: {
+    originCountry?: string;
+    destination?: string;
+    preferences?: string;
+    travelPurpose?: string;
+    visaType?: string;
+    residency?: string;
+  }
 ) {
   try {
-    const response = await apiClient.post('/ai/chat', { messages, context });
+    // Only send the last 8 messages (4 round trips) to avoid ballooning payload and token limits
+    const boundedMessages = messages.slice(-8);
+    const response = await apiClient.post('/ai/chat', { messages: boundedMessages, context });
     return response.data;
   } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
+    if (shouldServeOfflineFallback(err)) {
       const lastMsg = messages[messages.length - 1]?.content || '';
-      return { success: true, data: getOfflineChatResponse(lastMsg, context), isOfflineFallback: true };
+      return {
+        success: true,
+        data: getOfflineChatResponse(lastMsg, context),
+        isOfflineFallback: true,
+        rateLimitNotice: err?.response?.data?.message || null
+      };
     }
     throw err;
   }
@@ -196,28 +265,31 @@ export async function customizeItineraryDay(payload: {
   customizationInstruction: string;
   budgetRange?: string;
 }) {
-  try {
-    const response = await apiClient.post('/ai/customize-day', payload);
-    return response.data;
-  } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      return {
-        success: true,
-        data: {
-          day: payload.dayNumber,
-          theme: `${payload.customizationInstruction} in ${payload.destination}`,
-          activities: [
-            `Morning: Tailored exploration centered around "${payload.customizationInstruction}"`,
-            `Afternoon: Specialized local discovery and authentic culture experience`,
-            `Evening: Relaxed dinner and neighborhood walk matched to your customized pace`
-          ],
-          customizationNotes: `Adjusted Day ${payload.dayNumber} around: ${payload.customizationInstruction}`
-        },
-        isOfflineFallback: true
-      };
+  const key = `client_day:${payload.destination}:${payload.dayNumber}:${payload.customizationInstruction}`;
+  return dedupeAndCache(key, 10 * 60 * 1000, async () => {
+    try {
+      const response = await apiClient.post('/ai/customize-day', payload);
+      return response.data;
+    } catch (err: any) {
+      if (shouldServeOfflineFallback(err)) {
+        return {
+          success: true,
+          data: {
+            day: payload.dayNumber,
+            theme: `${payload.customizationInstruction} in ${payload.destination}`,
+            activities: [
+              `Morning: Tailored exploration centered around "${payload.customizationInstruction}"`,
+              `Afternoon: Specialized local discovery and authentic culture experience`,
+              `Evening: Relaxed dinner and neighborhood walk matched to your customized pace`
+            ],
+            customizationNotes: `Adjusted Day ${payload.dayNumber} around: ${payload.customizationInstruction}`
+          },
+          isOfflineFallback: true
+        };
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 export async function generateEmergencyCard(payload: {
@@ -225,15 +297,18 @@ export async function generateEmergencyCard(payload: {
   originCountry?: string;
   medicalNotes?: string;
 }) {
-  try {
-    const response = await apiClient.post('/ai/emergency-card', payload);
-    return response.data;
-  } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      return { success: true, data: getOfflineEmergencyCard(payload.destination), isOfflineFallback: true };
+  const key = `client_emerg:${payload.destination}:${payload.originCountry || ''}`;
+  return dedupeAndCache(key, 60 * 60 * 1000, async () => {
+    try {
+      const response = await apiClient.post('/ai/emergency-card', payload);
+      return response.data;
+    } catch (err: any) {
+      if (shouldServeOfflineFallback(err)) {
+        return { success: true, data: getOfflineEmergencyCard(payload.destination), isOfflineFallback: true };
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 export async function generatePackingChecklist(payload: {
@@ -242,15 +317,18 @@ export async function generatePackingChecklist(payload: {
   travelPurpose?: string;
   seasonOrMonth?: string;
 }) {
-  try {
-    const response = await apiClient.post('/ai/packing-checklist', payload);
-    return response.data;
-  } catch (err: any) {
-    if (isNetworkOrBackendOffline(err)) {
-      return { success: true, data: getOfflinePackingChecklist(payload.destination), isOfflineFallback: true };
+  const key = `client_pack:${payload.destination}:${payload.durationDays}`;
+  return dedupeAndCache(key, 60 * 60 * 1000, async () => {
+    try {
+      const response = await apiClient.post('/ai/packing-checklist', payload);
+      return response.data;
+    } catch (err: any) {
+      if (shouldServeOfflineFallback(err)) {
+        return { success: true, data: getOfflinePackingChecklist(payload.destination), isOfflineFallback: true };
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 
@@ -310,3 +388,19 @@ export async function autoConfirmEmailViaApi(email: string) {
   const response = await apiClient.post('/auth/auto-confirm', { email });
   return response.data;
 }
+
+export interface CurrencyRatesResponse {
+  success: boolean;
+  base: string;
+  rates: Record<string, number>;
+  lastUpdated: string;
+  isStale: boolean;
+  fromCache?: boolean;
+  provider: string;
+}
+
+export async function fetchExchangeRates(base: string = 'USD'): Promise<CurrencyRatesResponse> {
+  const response = await apiClient.get<CurrencyRatesResponse>(`/currency/rates?base=${encodeURIComponent(base)}`);
+  return response.data;
+}
+

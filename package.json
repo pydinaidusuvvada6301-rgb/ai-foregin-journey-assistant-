@@ -2,19 +2,25 @@
   "name": "visavoyage-ai-root",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BACKEND,FRONTEND\" --prefix-colors \"cyan,green\"",
-    "dev:backend": "cd backend && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev",
-    "build:backend": "cd backend && npm run build",
-    "build:frontend": "cd frontend && npm run build",
-    "build:all": "cd backend && npm run build && cd ../frontend && npm run build",
-    "build": "cd backend && npm install && npm run build",
-    "start": "cd backend && npm run start",
+    "dev:backend": "npm run dev --workspace=@visavoyage/backend",
+    "dev:frontend": "npm run dev --workspace=@visavoyage/frontend",
+    "build:backend": "npm run build --workspace=@visavoyage/backend",
+    "build:frontend": "npm run build --workspace=@visavoyage/frontend",
+    "build": "npm run build --workspace=@visavoyage/frontend",
+    "build:all": "npm run build --workspace=@visavoyage/backend && npm run build --workspace=@visavoyage/frontend",
+    "install:all": "npm install",
+    "start": "npm run start --workspace=@visavoyage/backend",
+    "test": "npm run test --workspace=@visavoyage/backend",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset"
   },
-  "devDependencies": {
+  "dependencies": {
     "concurrently": "^9.1.2"
   }
 }

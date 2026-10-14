@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { generateItinerary } from '../lib/api.js';
 import { ItineraryResultCard } from '../components/ItineraryResultCard.js';
 import { LocationDetectorButton } from '../components/LocationDetectorButton.js';
+import { CountryDirectoryModal } from '../components/CountryDirectoryModal.js';
 import type { ItineraryDetails, BudgetRange, TravelPurpose } from '../types/index.js';
 import {
   Compass,
@@ -51,6 +52,9 @@ export const ItineraryPage: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [generatedResult, setGeneratedResult] = useState<ItineraryDetails | null>(null);
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
+
+  const isSubmittingRef = useRef(false);
 
   const steps = [
     'Connecting to backend AI orchestration service...',
@@ -61,6 +65,8 @@ export const ItineraryPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setErrorMsg(null);
     setLoading(true);
     setGeneratedResult(null);
@@ -93,13 +99,19 @@ export const ItineraryPage: React.FC = () => {
     } catch (err: any) {
       clearInterval(interval);
       console.error('Itinerary generation error:', err);
+      const is429 = err?.response?.status === 429;
+      const retrySec = err?.response?.data?.retryAfterSeconds;
       let rawErr =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
         'Failed to generate itinerary. Please try again.';
 
-      if (
+      if (is429) {
+        rawErr = retrySec
+          ? `The AI service is experiencing high traffic. Please retry in ${retrySec} seconds.`
+          : 'Rate limit reached. Please wait a few moments before trying again.';
+      } else if (
         rawErr.includes('Failed to construct') ||
         rawErr.includes('Invalid URL') ||
         rawErr.includes('Network Error') ||
@@ -112,6 +124,7 @@ export const ItineraryPage: React.FC = () => {
       setErrorMsg(rawErr);
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -151,15 +164,24 @@ export const ItineraryPage: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Destination Selection */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-1">
               <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-cyan-400" /> Destination City & Country
               </label>
-              <LocationDetectorButton
-                variant="compact"
-                label="Set to My Location"
-                onLocationDetected={(text) => setDestination(text)}
-              />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsDirectoryOpen(true)}
+                  className="text-[11px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 font-medium"
+                >
+                  Browse 250 Countries
+                </button>
+                <LocationDetectorButton
+                  variant="compact"
+                  label="Set to My Location"
+                  onLocationDetected={(text) => setDestination(text)}
+                />
+              </div>
             </div>
             <input
               type="text"
@@ -393,6 +415,19 @@ export const ItineraryPage: React.FC = () => {
           />
         </div>
       )}
+
+      {/* Country Directory Modal */}
+      <CountryDirectoryModal
+        isOpen={isDirectoryOpen}
+        onClose={() => setIsDirectoryOpen(false)}
+        initialMode="destination"
+        onSelectCountry={(country) => {
+          setDestination(country.name);
+          if (country.currencies?.[0]?.code) {
+            setPreferredCurrency(country.currencies[0].code);
+          }
+        }}
+      />
     </div>
   );
 };

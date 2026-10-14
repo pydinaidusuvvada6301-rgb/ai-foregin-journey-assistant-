@@ -9,7 +9,8 @@ import {
   generateEmergencyCard,
   generatePackingChecklist
 } from '../controllers/ai.controller.js';
-import { requireAuth, optionalAuth } from '../middleware/auth.middleware.js';
+import { optionalAuth } from '../middleware/auth.middleware.js';
+import { createUserAiRateLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -35,13 +36,23 @@ const upload = multer({
 
 const router = Router();
 
-router.post('/itinerary', optionalAuth, generateItinerary);
-router.post('/visa-check', optionalAuth, checkVisaRequirements);
-router.post('/document-check', optionalAuth, upload.single('document'), analyzeDocument);
-router.post('/chat', optionalAuth, chatWithCopilot);
-router.post('/customize-day', optionalAuth, customizeItineraryDay);
-router.post('/emergency-card', optionalAuth, generateEmergencyCard);
-router.post('/packing-checklist', optionalAuth, generatePackingChecklist);
+// Per-user rate limiting & concurrency protection across all AI routes
+// Resolves client key from authenticated Supabase JWT (req.user.id) or client IP
+const aiLimiter = createUserAiRateLimiter({
+  windowMs: 60 * 1000, // 1 minute window
+  maxRequests: 20,     // 20 requests per minute
+  maxConcurrency: 2    // Max 2 concurrent AI generation operations per user/IP
+});
+
+router.use(optionalAuth);
+router.use(aiLimiter);
+
+router.post('/itinerary', generateItinerary);
+router.post('/visa-check', checkVisaRequirements);
+router.post('/document-check', upload.single('document'), analyzeDocument);
+router.post('/chat', chatWithCopilot);
+router.post('/customize-day', customizeItineraryDay);
+router.post('/emergency-card', generateEmergencyCard);
+router.post('/packing-checklist', generatePackingChecklist);
 
 export default router;
-

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { checkVisaRequirements } from '../lib/api.js';
 import { VisaCheckCard } from '../components/VisaCheckCard.js';
 import { LocationDetectorButton } from '../components/LocationDetectorButton.js';
+import { CountryDirectoryModal } from '../components/CountryDirectoryModal.js';
 import type { VisaCheckResult, TravelPurpose } from '../types/index.js';
 import {
   ShieldCheck,
@@ -45,6 +46,10 @@ export const VisaCheckerPage: React.FC = () => {
   const [loadingStep, setLoadingStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<VisaCheckResult | null>(null);
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
+  const [directoryMode, setDirectoryMode] = useState<'destination' | 'origin'>('destination');
+
+  const isSubmittingRef = useRef(false);
 
   const progressiveSteps = [
     'Connecting to sovereign consular database...',
@@ -60,6 +65,8 @@ export const VisaCheckerPage: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setErrorMsg(null);
     setLoading(true);
     setLoadingStep(0);
@@ -90,13 +97,19 @@ export const VisaCheckerPage: React.FC = () => {
     } catch (err: any) {
       clearInterval(interval);
       console.error('Visa policy check error:', err);
+      const is429 = err?.response?.status === 429;
+      const retrySec = err?.response?.data?.retryAfterSeconds;
       let rawErr =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
         'Failed to retrieve visa policy report. Please try again.';
 
-      if (
+      if (is429) {
+        rawErr = retrySec
+          ? `Consular intelligence servers are experiencing peak volume. Please retry in ${retrySec} seconds.`
+          : 'Rate limit reached. Please wait a few moments before submitting another inquiry.';
+      } else if (
         rawErr.includes('Failed to construct') ||
         rawErr.includes('Invalid URL') ||
         rawErr.includes('Network Error') ||
@@ -110,6 +123,7 @@ export const VisaCheckerPage: React.FC = () => {
     } finally {
       clearInterval(interval);
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -202,19 +216,31 @@ export const VisaCheckerPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Passport Origin */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                       <Globe className="w-3.5 h-3.5 text-cyan-400" /> Passport Country of Citizenship
                     </label>
-                    <LocationDetectorButton
-                      variant="compact"
-                      label="Detect Country"
-                      onLocationDetected={(_text, data) => {
-                        if (data.country) {
-                          setPassportCountry(data.country);
-                        }
-                      }}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDirectoryMode('origin');
+                          setIsDirectoryOpen(true);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-medium"
+                      >
+                        Browse 250 Countries
+                      </button>
+                      <LocationDetectorButton
+                        variant="compact"
+                        label="Detect Country"
+                        onLocationDetected={(_text, data) => {
+                          if (data.country) {
+                            setPassportCountry(data.country);
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                   <input
                     type="text"
@@ -245,9 +271,21 @@ export const VisaCheckerPage: React.FC = () => {
 
                 {/* Destination Country */}
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-indigo-400" /> Destination Country / Territory
-                  </label>
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-indigo-400" /> Destination Country / Territory
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDirectoryMode('destination');
+                        setIsDirectoryOpen(true);
+                      }}
+                      className="text-[11px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 font-medium"
+                    >
+                      Browse 250 Countries
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={destinationCountry}
@@ -470,6 +508,20 @@ export const VisaCheckerPage: React.FC = () => {
           <VisaCheckCard result={result} />
         </div>
       )}
+
+      {/* Country Directory Modal */}
+      <CountryDirectoryModal
+        isOpen={isDirectoryOpen}
+        onClose={() => setIsDirectoryOpen(false)}
+        initialMode={directoryMode}
+        onSelectCountry={(country, mode) => {
+          if (mode === 'destination') {
+            setDestinationCountry(country.name);
+          } else {
+            setPassportCountry(country.name);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -17,7 +17,7 @@ import {
   Zap,
   Globe
 } from 'lucide-react';
-import { MobilityGlobe3D } from '../components/MobilityGlobe3D.js';
+import { InteractiveEarthGlobe3D } from '../components/InteractiveEarthGlobe3D.js';
 import { Card3D } from '../components/Card3D.js';
 import { FloatingPassport3D } from '../components/FloatingPassport3D.js';
 
@@ -196,10 +196,7 @@ export const LandingPage: React.FC = () => {
 
         {/* 3D WebGL Globe Viewport */}
         <div className="relative">
-          <MobilityGlobe3D
-            initialOriginId="nyc"
-            initialDestId="tyo"
-          />
+          <InteractiveEarthGlobe3D />
         </div>
 
         {/* Quick Sample Destinations Strip */}
