@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
@@ -18,12 +18,44 @@ import { DocumentAnalyzerPage } from './pages/DocumentAnalyzerPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { MobilityGlobePage } from './pages/MobilityGlobePage.js';
 
+// Automatically handles incoming email confirmation, magic link, and password recovery tokens from Supabase
+const AuthRedirectHandler: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const hash = window.location.hash || '';
+    if (hash.includes('access_token=') || hash.includes('type=')) {
+      const params = new URLSearchParams(hash.replace(/^#/, ''));
+      const type = params.get('type');
+      const error = params.get('error_description') || params.get('error');
+
+      if (error) {
+        navigate(`/login?error=${encodeURIComponent(error)}`, { replace: true });
+        return;
+      }
+
+      if (type === 'recovery') {
+        navigate('/reset-password', { replace: true });
+      } else if (location.pathname === '/' || location.pathname === '/login' || location.pathname === '/signup') {
+        const timer = setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [location.pathname, navigate]);
+
+  return null;
+};
+
 export const App: React.FC = () => {
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
   return (
     <AuthProvider>
       <Router>
+        <AuthRedirectHandler />
         <div className="min-h-screen flex flex-col bg-navy-950 text-slate-100 relative">
           <Navbar onOpenCopilot={() => setIsCopilotOpen(true)} />
           <main className="flex-1">

@@ -66,19 +66,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // 1. Check for active demo user session
-    const savedDemo = localStorage.getItem(DEMO_USER_STORAGE_KEY);
-    if (savedDemo) {
-      try {
-        const parsed = JSON.parse(savedDemo);
-        if (mounted) {
-          setUser(parsed);
-          setIsDemoUser(true);
-          setLoading(false);
+    // Detect if URL contains incoming auth tokens (from email confirmation, magic link, password reset, or OAuth)
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const hasIncomingAuth =
+      hash.includes('access_token=') ||
+      hash.includes('type=') ||
+      hash.includes('error=') ||
+      search.includes('code=');
+
+    // 1. If incoming live auth is present, clear demo user session so live login succeeds
+    if (hasIncomingAuth) {
+      localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+      setIsDemoUser(false);
+    } else {
+      // Check for active demo user session
+      const savedDemo = localStorage.getItem(DEMO_USER_STORAGE_KEY);
+      if (savedDemo) {
+        try {
+          const parsed = JSON.parse(savedDemo);
+          if (mounted) {
+            setUser(parsed);
+            setIsDemoUser(true);
+            setLoading(false);
+          }
+          return;
+        } catch (e) {
+          localStorage.removeItem(DEMO_USER_STORAGE_KEY);
         }
-        return;
-      } catch (e) {
-        localStorage.removeItem(DEMO_USER_STORAGE_KEY);
       }
     }
 
