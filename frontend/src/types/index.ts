@@ -127,9 +127,14 @@ export interface DocumentCheckRecord {
 }
 
 export interface ChatMessage {
+  id?: string;
   role: 'user' | 'assistant' | 'model';
   content: string;
   timestamp?: string;
+  status?: 'sending' | 'success' | 'error';
+  error?: string;
+  isRetryable?: boolean;
+  requestId?: number | string;
 }
 
 export interface CustomizedDayResult {

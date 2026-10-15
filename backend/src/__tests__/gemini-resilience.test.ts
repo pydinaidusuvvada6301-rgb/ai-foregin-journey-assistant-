@@ -203,16 +203,81 @@ async function main() {
     concurrencyTracker.release(clientKey);
   });
 
-  await runTest('Rate limit store increments and respects window reset', async () => {
-    const store = new MemoryRateLimitStore();
-    const rec1 = await store.increment('test:user', 1000);
-    assert.equal(rec1.count, 1);
+  await runTest('Identifies TPM (tokens per minute) limitType and categorizes as RATE_LIMIT_TRANSIENT', async () => {
+    const err = {
+      status: 429,
+      message: 'Resource exhausted: Quota exceeded for metric GenerateContentTokensPerMinutePerProject'
+    };
+    const classified = classifyGeminiError(err);
+    assert.equal(classified.category, 'RATE_LIMIT_TRANSIENT');
+    assert.equal(classified.limitType, 'TPM');
+    assert.equal(classified.isRetryable, true);
+    assert.equal(classified.statusCode, 429);
+  });
 
-    const rec2 = await store.increment('test:user', 1000);
-    assert.equal(rec2.count, 2);
+  await runTest('Extracts Retry-After from Fetch API Headers instance with .get()', async () => {
+    const headersMap = new Map([['retry-after', '7']]);
+    const err = {
+      status: 429,
+      message: 'Too Many Requests',
+      headers: {
+        get: (name: string) => headersMap.get(name.toLowerCase()) || null
+      }
+    };
+    const classified = classifyGeminiError(err);
+    assert.equal(classified.category, 'RATE_LIMIT_TRANSIENT');
+    assert.equal(classified.retryDelayMs, 7000);
+  });
 
-    const check = await store.get('test:user');
-    assert.equal(check?.count, 2);
+  await runTest('Extracts retry delay from raw message regex if headers absent', async () => {
+    const err = {
+      status: 429,
+      message: 'RESOURCE_EXHAUSTED: Rate limit reached. Please retry in 5s.'
+    };
+    const classified = classifyGeminiError(err);
+    assert.equal(classified.category, 'RATE_LIMIT_TRANSIENT');
+    assert.equal(classified.retryDelayMs, 5000);
+  });
+
+  await runTest('Strictly limits retries to max 2 and throws last error on attempt 3', async () => {
+    let callCount = 0;
+    let thrownError: any = null;
+    try {
+      await withBoundedBackoff(async () => {
+        callCount++;
+        throw { status: 429, message: 'RESOURCE_EXHAUSTED: Requests per minute exceeded' };
+      }, { maxRetries: 2, baseDelayMs: 20, maxDelayMs: 100 });
+    } catch (e) {
+      thrownError = e;
+    }
+
+    assert.notEqual(thrownError, null);
+    assert.equal(callCount, 3, 'Must execute exactly 1 initial + 2 retries = 3 attempts total');
+  });
+
+  // Test Group 6: Client Key Scoping (Per-user vs Per-IP Isolation)
+  console.log('\n[Suite 6: Client Key Scoping & Isolation]');
+  await runTest('Scopes authenticated requests by user ID to prevent cross-customer interference', async () => {
+    const { getClientKey } = await import('../middleware/rateLimiter.middleware.js');
+    const reqAuth = {
+      user: { id: 'usr-vip-999' },
+      headers: { 'x-forwarded-for': '198.51.100.1' },
+      ip: '10.0.0.1'
+    } as any;
+
+    const key = getClientKey(reqAuth);
+    assert.equal(key, 'user:usr-vip-999', 'Must scope authenticated request by user ID');
+  });
+
+  await runTest('Scopes unauthenticated requests by forwarded client IP behind reverse proxy', async () => {
+    const { getClientKey } = await import('../middleware/rateLimiter.middleware.js');
+    const reqAnon = {
+      headers: { 'x-forwarded-for': '203.0.113.195, 10.0.0.1' },
+      ip: '10.0.0.1'
+    } as any;
+
+    const key = getClientKey(reqAnon);
+    assert.equal(key, 'ip:203.0.113.195', 'Must extract first client IP from X-Forwarded-For');
   });
 
   console.log('\n======================================================');

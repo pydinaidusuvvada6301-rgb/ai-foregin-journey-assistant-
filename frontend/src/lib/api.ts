@@ -105,7 +105,6 @@ import {
   getOfflineVisaCheck,
   getOfflineItinerary,
   getOfflineDocumentAnalysis,
-  getOfflineChatResponse,
   getOfflineEmergencyCard,
   getOfflinePackingChecklist
 } from './offline-fallback.js';
@@ -236,25 +235,34 @@ export async function chatWithCopilot(
     travelPurpose?: string;
     visaType?: string;
     residency?: string;
-  }
+  },
+  signal?: AbortSignal,
+  requestId?: string | number
 ) {
-  try {
-    // Only send the last 8 messages (4 round trips) to avoid ballooning payload and token limits
-    const boundedMessages = messages.slice(-8);
-    const response = await apiClient.post('/ai/chat', { messages: boundedMessages, context });
-    return response.data;
-  } catch (err: any) {
-    if (shouldServeOfflineFallback(err)) {
-      const lastMsg = messages[messages.length - 1]?.content || '';
-      return {
-        success: true,
-        data: getOfflineChatResponse(lastMsg, context),
-        isOfflineFallback: true,
-        rateLimitNotice: err?.response?.data?.message || null
-      };
+  // Sanitize: filter UI banners, non-string/empty messages, and map assistant -> model
+  const sanitizedMessages = messages
+    .filter(m => m && typeof m.content === 'string' && m.content.trim().length > 0)
+    .filter(m => !(m.role === 'assistant' && (
+      m.content.includes('Welcome to Gemini Foreign Journey Copilot') ||
+      m.content.includes('Conversation Cleared') ||
+      m.content.includes('I can provide clean, real-time advice tailored to your itinerary')
+    )))
+    .slice(-8) // Bound to last 8 messages (4 turns) for token optimization
+    .map(m => ({
+      role: m.role === 'assistant' ? 'model' : m.role,
+      content: m.content.trim()
+    }));
+
+  // Never return fabricated canned advice on failure; propagate error for transparent UI retry
+  const response = await apiClient.post(
+    '/ai/chat',
+    { messages: sanitizedMessages, context, requestId },
+    {
+      signal,
+      headers: requestId ? { 'X-Request-Id': String(requestId) } : undefined
     }
-    throw err;
-  }
+  );
+  return response.data;
 }
 
 export async function customizeItineraryDay(payload: {

@@ -15,12 +15,17 @@ import currencyRoutes from './routes/currency.routes.js';
 import { errorHandler } from './middleware/errorHandler.middleware.js';
 import { isGeminiConfigured, MODEL_NAME } from './services/gemini.service.js';
 import { isSupabaseConfigured } from './services/supabase.service.js';
+import { getClientKey } from './middleware/rateLimiter.middleware.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
+// Enable trust proxy for Render, Vercel, and Cloudflare reverse proxies
+// Ensures req.ip and req.ips accurately identify the real client rather than the load balancer
+app.set('trust proxy', 1);
 
 // 1. Security HTTP Headers
 app.use(helmet({
@@ -33,21 +38,24 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-Id']
 }));
 
 // 3. Body Parsing
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-// 4. Rate Limiting to prevent brute-force and API abuse
+// 4. Rate Limiting: per-user / per-client rate limit to prevent abuse while allowing legitimate users
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 150, // limit each IP to 150 requests per window
+  max: 500, // Generous 500 requests per 15 min per user/IP for general API navigation
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientKey(req),
   message: {
+    success: false,
     error: 'Too Many Requests',
+    code: 'RATE_LIMIT_EXCEEDED',
     message: 'Rate limit exceeded. Please try again after a few minutes.'
   }
 });
@@ -56,11 +64,14 @@ app.use('/api', apiLimiter);
 // Dedicated stricter rate limit for sensitive authentication operations
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // limit each IP to 20 registration/confirmation attempts per 15 min
+  max: 30, // 30 registration/confirmation attempts per 15 min per client
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientKey(req),
   message: {
+    success: false,
     error: 'Too Many Requests',
+    code: 'AUTH_RATE_LIMIT_EXCEEDED',
     message: 'Too many authentication attempts. Please wait 15 minutes before trying again.'
   }
 });

@@ -10,6 +10,7 @@ import {
   generatePackingChecklistAI
 } from '../services/gemini.service.js';
 import { saveItinerary, saveVisaCheck, saveDocumentCheck } from '../services/supabase.service.js';
+import { classifyGeminiError } from '../services/gemini-resilience.js';
 
 import { itineraryInputSchema, visaCheckInputSchema } from '../schemas/travel.schema.js';
 
@@ -132,12 +133,29 @@ export async function analyzeDocument(req: Request, res: Response, next: NextFun
 }
 
 export async function chatWithCopilot(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const requestId = req.body?.requestId || req.headers['x-request-id'] || null;
+
   try {
     const { messages, context } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {
       res.status(400).json({
+        success: false,
+        requestId,
         error: 'Bad Request',
+        code: 'VALIDATION_ERROR',
         message: 'messages array is required and must not be empty.'
+      });
+      return;
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || typeof lastMsg.content !== 'string' || !lastMsg.content.trim()) {
+      res.status(400).json({
+        success: false,
+        requestId,
+        error: 'Bad Request',
+        code: 'VALIDATION_ERROR',
+        message: 'The latest customer message must contain non-empty text content.'
       });
       return;
     }
@@ -145,10 +163,73 @@ export async function chatWithCopilot(req: Request, res: Response, next: NextFun
     const result = await chatWithGeminiAI({ messages, context });
     res.status(200).json({
       success: true,
+      requestId,
       data: result
     });
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    const classified = classifyGeminiError(err);
+    const retryAfter = classified.retryDelayMs > 0 ? Math.ceil(classified.retryDelayMs / 1000) : 5;
+
+    if (classified.statusCode === 429) {
+      res.setHeader('Retry-After', retryAfter);
+    }
+
+    if (classified.category === 'RATE_LIMIT_TRANSIENT') {
+      res.status(429).json({
+        success: false,
+        requestId,
+        error: 'Rate Limit Exceeded',
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'The AI assistant is receiving too many requests right now. Please wait a moment and try again.',
+        isRetryable: true,
+        retryAfterSeconds: retryAfter,
+        isQuotaExhausted: false
+      });
+      return;
+    }
+
+    if (classified.category === 'QUOTA_EXHAUSTED_DAILY') {
+      res.status(429).json({
+        success: false,
+        requestId,
+        error: 'Daily Quota Exhausted',
+        code: 'DAILY_QUOTA_EXHAUSTED',
+        message: 'Daily AI intelligence quota has been reached for today. Realistic offline consular intelligence is active.',
+        isRetryable: false,
+        retryAfterSeconds: 0,
+        isQuotaExhausted: true
+      });
+      return;
+    }
+
+    if (classified.category === 'BILLING_RESTRICTION') {
+      res.status(403).json({
+        success: false,
+        requestId,
+        error: 'Service Access Restricted',
+        code: 'BILLING_RESTRICTION',
+        message: 'The AI service is temporarily restricted by provider quota policy. Offline intelligence is serving your request.',
+        isRetryable: false,
+        retryAfterSeconds: 0,
+        isQuotaExhausted: true
+      });
+      return;
+    }
+
+    // Never expose API keys, internal stack traces, or provider secrets to customers
+    const statusCode = classified.statusCode >= 400 && classified.statusCode < 600 ? classified.statusCode : 500;
+    res.status(statusCode).json({
+      success: false,
+      requestId,
+      error: classified.category,
+      code: 'AI_ERROR',
+      message: statusCode === 500
+        ? 'An internal error occurred while generating AI response. Please retry in a few moments.'
+        : (classified.message || 'Unable to generate response from Gemini AI. Please retry.'),
+      isRetryable: classified.isRetryable,
+      retryAfterSeconds: classified.isRetryable ? retryAfter : undefined,
+      isQuotaExhausted: false
+    });
   }
 }
 

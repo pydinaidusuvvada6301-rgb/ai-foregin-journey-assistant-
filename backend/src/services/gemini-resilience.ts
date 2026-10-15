@@ -22,8 +22,11 @@ export type GeminiErrorCategory =
   | 'NOT_FOUND'              // 404 model not found / deprecated: cascade to next model
   | 'UNKNOWN';
 
+export type GeminiLimitType = 'RPM' | 'TPM' | 'RPD' | 'BILLING' | 'UNKNOWN';
+
 export interface ClassifiedGeminiError {
   category: GeminiErrorCategory;
+  limitType?: GeminiLimitType;
   isRetryable: boolean;
   retryDelayMs: number;
   message: string;
@@ -33,13 +36,20 @@ export interface ClassifiedGeminiError {
 
 /**
  * Accurately classify a Gemini API error to prevent retrying non-retryable daily quotas
- * while allowing transient RPM rate limits to be retried with exponential backoff.
+ * while allowing transient RPM/TPM rate limits to be retried with exponential backoff.
  */
 export function classifyGeminiError(err: any): ClassifiedGeminiError {
-  const status = Number(err?.status || err?.statusCode || err?.error?.code || 500);
-  const rawMsg = String(err?.message || err?.error?.message || err || '');
+  const status = Number(
+    err?.status ||
+    err?.statusCode ||
+    err?.response?.status ||
+    err?.error?.code ||
+    (typeof err?.code === 'number' ? err.code : 0) ||
+    500
+  );
+  const rawMsg = String(err?.message || err?.error?.message || (typeof err === 'string' ? err : ''));
 
-  // 1. Check for Daily Quota Exhaustion (Non-retryable until next day UTC/Pacific)
+  // 1. Check for Daily Quota Exhaustion (Non-retryable until daily reset UTC/Pacific)
   const isDailyQuota =
     (status === 429 || rawMsg.includes('RESOURCE_EXHAUSTED')) &&
     (
@@ -48,13 +58,14 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
       rawMsg.includes('RequestsPerDay') ||
       rawMsg.includes('per day') ||
       rawMsg.includes('PerDay') ||
-      (rawMsg.includes('FreeTier') && rawMsg.includes('quota')) ||
+      (rawMsg.includes('FreeTier') && rawMsg.includes('quota') && !rawMsg.includes('minute')) ||
       (rawMsg.includes('Quota exceeded for quota metric') && rawMsg.toLowerCase().includes('day'))
     );
 
   if (isDailyQuota) {
     return {
       category: 'QUOTA_EXHAUSTED_DAILY',
+      limitType: 'RPD',
       isRetryable: false,
       retryDelayMs: 0,
       statusCode: 429,
@@ -75,20 +86,52 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
   if (isBilling) {
     return {
       category: 'BILLING_RESTRICTION',
+      limitType: 'BILLING',
       isRetryable: false,
       retryDelayMs: 0,
       statusCode: 403,
-      message: 'Gemini API billing or authentication restriction. Please check your API key configuration.',
+      message: 'Gemini API billing or authentication restriction. Please check your API key configuration in Google AI Studio.',
       originalError: err
     };
   }
 
-  // 3. Extract retryDelay if supplied by Google GenAI or HTTP headers
+  // 3. Extract retryDelay / Retry-After if supplied by Google GenAI SDK, RPC details, or HTTP headers
   let suggestedDelayMs = 0;
-  if (err?.errorDetails && Array.isArray(err.errorDetails)) {
-    for (const detail of err.errorDetails) {
-      if (detail['@type']?.includes('RetryInfo') && detail.retryDelay) {
-        const parsedSec = parseFloat(String(detail.retryDelay).replace('s', ''));
+
+  // 3a. Check Google RPC RetryInfo in errorDetails or details array
+  const detailsList = err?.errorDetails || err?.details || err?.error?.details || err?.response?.data?.error?.details;
+  if (Array.isArray(detailsList)) {
+    for (const detail of detailsList) {
+      if (detail && detail['@type']?.includes('RetryInfo')) {
+        if (detail.retryDelay) {
+          if (typeof detail.retryDelay === 'string') {
+            const parsedSec = parseFloat(detail.retryDelay.replace('s', ''));
+            if (!isNaN(parsedSec)) suggestedDelayMs = Math.round(parsedSec * 1000);
+          } else if (typeof detail.retryDelay === 'object') {
+            const sec = Number(detail.retryDelay.seconds || 0);
+            const nanos = Number(detail.retryDelay.nanos || 0);
+            suggestedDelayMs = Math.round((sec + nanos / 1e9) * 1000);
+          } else if (typeof detail.retryDelay === 'number') {
+            suggestedDelayMs = Math.round(detail.retryDelay * 1000);
+          }
+        }
+      }
+    }
+  }
+
+  // 3b. Check HTTP Retry-After headers (supports Headers instance from fetch or plain object)
+  if (!suggestedDelayMs) {
+    const headers = err?.headers || err?.response?.headers;
+    if (headers) {
+      let retryHeader: string | null = null;
+      if (typeof headers.get === 'function') {
+        retryHeader = headers.get('retry-after') || headers.get('Retry-After');
+      } else {
+        retryHeader = headers['retry-after'] || headers['Retry-After'] || null;
+      }
+
+      if (retryHeader) {
+        const parsedSec = parseFloat(String(retryHeader));
         if (!isNaN(parsedSec)) {
           suggestedDelayMs = Math.round(parsedSec * 1000);
         }
@@ -96,17 +139,25 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
     }
   }
 
-  if (!suggestedDelayMs && err?.headers) {
-    const retryHeader = err.headers['retry-after'] || err.headers['Retry-After'];
-    if (retryHeader) {
-      const parsedSec = parseFloat(retryHeader);
+  // 3c. Extract retry delay from error message regex e.g. "Please retry in 4s"
+  if (!suggestedDelayMs) {
+    const delayMatch = rawMsg.match(/(?:retry\s+(?:in|after)|reset\s+in)\s+([0-9.]+)\s*s/i);
+    if (delayMatch && delayMatch[1]) {
+      const parsedSec = parseFloat(delayMatch[1]);
       if (!isNaN(parsedSec)) {
         suggestedDelayMs = Math.round(parsedSec * 1000);
       }
     }
   }
 
-  // 4. Transient Per-Minute Rate Limit (RPM / TPM) (Retryable with backoff)
+  // 4. Distinguish Tokens-Per-Minute (TPM) vs Requests-Per-Minute (RPM) rate limits
+  const isTPM =
+    rawMsg.includes('Tokens per minute') ||
+    rawMsg.includes('TokensPerMinute') ||
+    rawMsg.includes('TokenCount') ||
+    rawMsg.includes('tokens per minute');
+
+  // 5. Transient Rate Limits (RPM / TPM / RESOURCE_EXHAUSTED) (Retryable with backoff)
   const isTransientRateLimit =
     status === 429 ||
     rawMsg.includes('RESOURCE_EXHAUSTED') ||
@@ -121,15 +172,18 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
   if (isTransientRateLimit) {
     return {
       category: 'RATE_LIMIT_TRANSIENT',
+      limitType: isTPM ? 'TPM' : 'RPM',
       isRetryable: true,
       retryDelayMs: suggestedDelayMs,
       statusCode: 429,
-      message: 'Gemini API per-minute request rate limit reached. Retrying with bounded backoff.',
+      message: isTPM
+        ? 'Gemini API tokens-per-minute rate limit reached. Retrying with bounded backoff.'
+        : 'Gemini API per-minute request rate limit reached. Retrying with bounded backoff.',
       originalError: err
     };
   }
 
-  // 5. Transient High Demand / Server Spikes (Retryable)
+  // 6. Transient High Demand / Server Spikes (503 / 504) (Retryable)
   const isServiceUnavailable =
     status === 503 ||
     status === 504 ||
@@ -140,6 +194,7 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
   if (isServiceUnavailable) {
     return {
       category: 'SERVICE_UNAVAILABLE',
+      limitType: 'UNKNOWN',
       isRetryable: true,
       retryDelayMs: suggestedDelayMs,
       statusCode: 503,
@@ -148,10 +203,11 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
     };
   }
 
-  // 6. Model Not Found (Non-retryable on this model; cascade to fallback)
+  // 7. Model Not Found (Non-retryable on this model; cascade to fallback)
   if (status === 404 || rawMsg.includes('not found') || rawMsg.includes('no longer supported')) {
     return {
       category: 'NOT_FOUND',
+      limitType: 'UNKNOWN',
       isRetryable: false,
       retryDelayMs: 0,
       statusCode: 404,
@@ -162,6 +218,7 @@ export function classifyGeminiError(err: any): ClassifiedGeminiError {
 
   return {
     category: 'UNKNOWN',
+    limitType: 'UNKNOWN',
     isRetryable: false,
     retryDelayMs: 0,
     statusCode: status || 500,
@@ -310,18 +367,71 @@ class ResilienceCache {
 export const resilienceCache = new ResilienceCache(300);
 
 /**
- * Prune and bound chat conversation history to avoid unbounded token accumulation
+ * Prune, sanitize, and bound chat conversation history for Gemini API.
+ * Guarantees:
+ * 1. Non-empty, valid text messages only.
+ * 2. Excludes UI-only initial greetings or banners.
+ * 3. Conversation history strictly begins with a 'user' message.
+ * 4. Merges consecutive same-role turns to preserve strict alternating user/model sequence.
+ * 5. Bounded to recent maxTurns to avoid token overflow.
  */
 export function pruneChatHistory(
   messages: Array<{ role: string; content: string }>,
   maxTurns = 4
 ): Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> {
-  // 1 turn = 1 user + 1 model message => maxTurns * 2 messages
-  const maxMessages = maxTurns * 2;
-  const recent = messages.slice(-maxMessages);
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return [];
+  }
 
-  return recent.map((m) => ({
-    role: m.role === 'assistant' || m.role === 'model' ? ('model' as const) : ('user' as const),
-    parts: [{ text: m.content.slice(0, 2000) }] // Safeguard per-message text length
-  }));
+  // 1. Filter out empty, non-string, and UI-only introductory banners
+  const valid = messages.filter((m) => {
+    if (!m || typeof m.content !== 'string') return false;
+    const trimmed = m.content.trim();
+    if (!trimmed) return false;
+    // Exclude UI-only initial welcome cards
+    if ((m.role === 'assistant' || m.role === 'model') && (
+      trimmed.includes('Welcome to Gemini Foreign Journey Copilot') ||
+      trimmed.includes('Conversation Cleared') ||
+      trimmed.includes('I can provide clean, real-time advice tailored to your itinerary')
+    )) {
+      return false;
+    }
+    return true;
+  });
+
+  if (valid.length === 0) {
+    return [];
+  }
+
+  // 2. Bound to recent turns (1 turn = 1 user + 1 model message => maxTurns * 2)
+  const maxMessages = maxTurns * 2;
+  const recent = valid.slice(-maxMessages);
+
+  // 3. Drop any leading assistant/model messages so history strictly begins with 'user'
+  let firstUserIdx = 0;
+  while (firstUserIdx < recent.length && (recent[firstUserIdx].role === 'assistant' || recent[firstUserIdx].role === 'model')) {
+    firstUserIdx++;
+  }
+  const userStarted = recent.slice(firstUserIdx);
+  if (userStarted.length === 0) {
+    return [];
+  }
+
+  // 4. Merge consecutive same-role turns into strict alternating sequence
+  const alternating: Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> = [];
+  for (const msg of userStarted) {
+    const role: 'user' | 'model' = (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user';
+    const text = msg.content.trim().slice(0, 2500);
+
+    if (alternating.length > 0 && alternating[alternating.length - 1].role === role) {
+      alternating[alternating.length - 1].parts[0].text += `\n${text}`;
+    } else {
+      alternating.push({
+        role,
+        parts: [{ text }]
+      });
+    }
+  }
+
+  return alternating;
 }

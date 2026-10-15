@@ -10,7 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx src/__tests__/gemini-resilience.test.ts && tsx src/__tests__/features-and-globe.test.ts"
+    "test": "tsx src/__tests__/gemini-resilience.test.ts && tsx src/__tests__/features-and-globe.test.ts && tsx src/__tests__/chat-relevance-and-resilience.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.28.0",

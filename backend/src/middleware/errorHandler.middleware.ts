@@ -80,7 +80,7 @@ export function errorHandler(
       success: false,
       error: 'Rate Limit Exceeded',
       code: 'RATE_LIMIT_EXCEEDED',
-      message: `The AI intelligence service is currently experiencing high demand. Please retry in ${retrySec} seconds.`,
+      message: 'The AI assistant is receiving too many requests right now. Please wait a moment and try again.',
       retryAfterSeconds: retrySec,
       isQuotaExhausted: false,
       fallbackAvailable: true

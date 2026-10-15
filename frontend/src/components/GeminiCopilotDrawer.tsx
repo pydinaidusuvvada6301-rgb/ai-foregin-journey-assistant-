@@ -15,7 +15,8 @@ import {
   Maximize2,
   Minimize2,
   Compass,
-  ArrowDown
+  ArrowDown,
+  AlertTriangle
 } from 'lucide-react';
 import { chatWithCopilot } from '../lib/api.js';
 import { GeminiMarkdown } from './GeminiMarkdown.js';
@@ -40,13 +41,16 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
+      id: 'welcome-msg',
       role: 'assistant',
       content: `### Welcome to Gemini Foreign Journey Copilot ✨\n\nI can provide clean, real-time advice tailored to your itinerary:\n\n* **Visa & Entry Rules**: eVisa turnaround, consular requirements, and passport validity.\n* **Study & Work Guidelines**: Official student visas (e.g. Subclass 500), document checklists, and work rights.\n* **Airport Layover Protocols**: Transit visa exemptions, terminal transfers, and luggage re-check.\n* **Banned OTC Medications**: Specific country drug prohibitions and prescription requirements.\n* **Electrical & Voltage Specs**: Plug socket types and converter recommendations.\n* **Emergency Protocols**: 24/7 tourist police hotlines and embassy assistance.\n\n*Where are you heading, or what question can I answer for you today?*`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'success'
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down'>>({});
@@ -54,15 +58,73 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Synchronous lock & request sequencing to completely prevent race conditions, rapid double-clicks & stale responses
+  const isSendingRef = useRef<boolean>(false);
+  const currentRequestIdRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cooldown countdown effect for rate limit backoff
+  useEffect(() => {
+    if (cooldownRemaining > 0) {
+      cooldownTimerRef.current = setTimeout(() => {
+        setCooldownRemaining((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => {
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current);
+      }
+    };
+  }, [cooldownRemaining]);
+
   const quickPrompts = [
-    { label: '🎓 Study Documents', query: `What documents do I need to study in ${destinationContext || 'Australia'}?` },
-    { label: '🛂 Visa & Entry', query: `What are the visa and entry requirements for traveling to ${destinationContext || 'my destination'}?` },
-    { label: '📑 Document Prep', query: `What financial proof, employment letters, and bank statement requirements are typically needed for a visa to ${destinationContext || 'my destination'}?` },
-    { label: '💰 Budget & Living', query: `Help me structure a realistic daily travel budget breakdown and planning timeline for visiting ${destinationContext || 'my destination'}.` },
-    { label: '💊 Banned OTC Meds', query: `What common over-the-counter medications are strictly banned or restricted in ${destinationContext || 'my destination'}?` },
-    { label: '⏳ Layover Transit Rules', query: `Do I need a transit visa for an airport layover when flying to ${destinationContext || 'international hubs'}?` },
-    { label: '🔌 Plugs & Voltage', query: `What electrical plug socket type and voltage is used in ${destinationContext || 'my destination'}?` },
-    { label: '🚨 Emergency Hotlines', query: `What are emergency numbers, tourist police contacts, and common tourist scams in ${destinationContext || 'my destination'}?` }
+    {
+      label: '🎓 Study Documents',
+      query: destinationContext
+        ? `What documents do I need to study in ${destinationContext}?`
+        : 'What documents do I need to study abroad as an international student?'
+    },
+    {
+      label: '🛂 Visa & Entry',
+      query: destinationContext
+        ? `What are the visa and entry requirements for traveling to ${destinationContext}?`
+        : 'What are the general visa and entry requirements for international travel?'
+    },
+    {
+      label: '📑 Document Prep',
+      query: destinationContext
+        ? `What financial proof and bank statement requirements are typically needed for a visa to ${destinationContext}?`
+        : 'What documents do I typically need to prepare for an international visa application?'
+    },
+    {
+      label: '💰 Travel Budget',
+      query: destinationContext
+        ? `Help me structure a realistic daily travel budget breakdown for visiting ${destinationContext}.`
+        : 'Help me structure a realistic daily travel budget breakdown and planning timeline.'
+    },
+    {
+      label: '💊 Restricted Meds',
+      query: destinationContext
+        ? `What common over-the-counter medications are restricted or banned in ${destinationContext}?`
+        : 'What common medications are typically restricted or banned when traveling internationally?'
+    },
+    {
+      label: '⏳ Layover Rules',
+      query: 'Do I need a transit visa for an international airport layover?'
+    },
+    {
+      label: '🔌 Plugs & Voltage',
+      query: destinationContext
+        ? `What electrical plug socket type and voltage is used in ${destinationContext}?`
+        : 'How do I check electrical plug socket types and voltage when traveling abroad?'
+    },
+    {
+      label: '🚨 Emergency Hotlines',
+      query: destinationContext
+        ? `What are emergency numbers and tourist safety tips in ${destinationContext}?`
+        : 'What emergency numbers and tourist safety protocols should every foreign traveler know?'
+    }
   ];
 
   const scrollToBottom = () => {
@@ -82,71 +144,139 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
     }
   }, [messages, isOpen]);
 
-  const isSubmittingRef = useRef(false);
-
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
-    if (!text || isLoading || isSubmittingRef.current) return;
-    isSubmittingRef.current = true;
+    // Synchronous guard: reject immediately if already sending, loading, or cooling down
+    if (!text || isLoading || isSendingRef.current || cooldownRemaining > 0) return;
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setInput('');
+    isSendingRef.current = true;
     setIsLoading(true);
 
-    try {
-      // Format history for Gemini API: Bound to last 8 messages (4 turns) to conserve tokens
-      const boundedHistory = newMessages.slice(-8);
-      const apiPayload = boundedHistory.map(m => ({
-        role: m.role === 'assistant' ? 'model' : m.role,
-        content: m.content
-      }));
+    // Sequence ID for this specific submission turn
+    currentRequestIdRef.current += 1;
+    const thisRequestId = currentRequestIdRef.current;
 
-      const res = await chatWithCopilot(apiPayload, {
-        destination: destinationContext,
-        originCountry: originCountryContext,
-        travelPurpose: travelPurposeContext,
-        visaType: visaTypeContext
-      });
+    // Abort active prior request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const userMsg: ChatMessage = {
+      id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      role: 'user',
+      content: text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'success',
+      requestId: thisRequestId
+    };
+
+    // Use functional state updates to avoid stale React closures
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+
+    try {
+      // Prepare history snapshot for Gemini payload
+      const historySnapshot = [...messages, userMsg];
+
+      const res = await chatWithCopilot(
+        historySnapshot,
+        {
+          destination: destinationContext,
+          originCountry: originCountryContext,
+          travelPurpose: travelPurposeContext,
+          visaType: visaTypeContext
+        },
+        abortController.signal,
+        thisRequestId
+      );
+
+      // Verify that this request has not been superseded by a newer message turn
+      if (thisRequestId !== currentRequestIdRef.current) {
+        return;
+      }
+      if (res?.requestId && Number(res.requestId) !== thisRequestId) {
+        return;
+      }
 
       if (res?.data?.reply) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: res.data.reply,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
+        const assistantMsg: ChatMessage = {
+          id: `ast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          role: 'assistant',
+          content: res.data.reply,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          status: 'success',
+          requestId: thisRequestId
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
       }
     } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') {
+        return;
+      }
+      if (thisRequestId !== currentRequestIdRef.current) {
+        return;
+      }
+
       console.error('Copilot request failed:', err);
-      const isRateLimited = err?.response?.status === 429;
-      const retrySec = err?.response?.data?.retryAfterSeconds;
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: isRateLimited
-            ? `### ⏳ Service High Demand Notice\n\nThe AI copilot is currently handling peak traffic. Please try asking again ${retrySec ? `in ${retrySec} seconds` : 'in a few moments'}.`
-            : '### ⚠️ Live Connection Notice\n\nUnable to reach the Gemini service at this moment. Please ensure the backend server is running and try again in a few seconds.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
+      const isRateLimited =
+        err?.response?.status === 429 ||
+        err?.response?.data?.code === 'RATE_LIMIT_EXCEEDED' ||
+        err?.response?.data?.code === 'CONCURRENCY_LIMIT_EXCEEDED' ||
+        err?.response?.data?.error === 'RATE_LIMIT_TRANSIENT';
+
+      const rawRetry = err?.response?.data?.retryAfterSeconds || err?.response?.headers?.['retry-after'];
+      const retrySec = Number(rawRetry) > 0 ? Number(rawRetry) : (isRateLimited ? 5 : 0);
+
+      // Trigger cooldown period on frontend to prevent immediate retry hammering
+      if (isRateLimited && retrySec > 0) {
+        setCooldownRemaining(retrySec);
+      }
+
+      const errorMsgText = err?.response?.data?.message || err?.message;
+
+      const errorMsg: ChatMessage = {
+        id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        role: 'assistant',
+        content: isRateLimited
+          ? "The AI assistant is receiving too many requests right now. Please wait a moment and try again."
+          : `### ⚠️ Connection Notice\n\n${errorMsgText || 'Unable to connect to the Gemini service at this moment. Please ensure the backend server is running and try again.'}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'error',
+        error: errorMsgText,
+        isRetryable: isRateLimited || err?.response?.data?.isRetryable !== false,
+        requestId: thisRequestId
+      };
+
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
-      setIsLoading(false);
-      isSubmittingRef.current = false;
+      if (thisRequestId === currentRequestIdRef.current) {
+        isSendingRef.current = false;
+        setIsLoading(false);
+      }
     }
   };
 
+  const handleRetryForMessage = (errorIndex: number) => {
+    if (isLoading || isSendingRef.current || cooldownRemaining > 0) return;
+
+    let userTextToRetry = '';
+    for (let i = errorIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userTextToRetry = messages[i].content;
+        break;
+      }
+    }
+    if (!userTextToRetry) return;
+
+    // Remove the error message and retry the user query
+    setMessages((prev) => prev.filter((_, idx) => idx !== errorIndex));
+    handleSendMessage(userTextToRetry);
+  };
+
   const handleRegenerateLast = () => {
-    if (isLoading || isSubmittingRef.current) return;
+    if (isLoading || isSendingRef.current || cooldownRemaining > 0) return;
     // Find the last user message
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
@@ -159,7 +289,9 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      if (!isLoading && !isSendingRef.current && cooldownRemaining === 0) {
+        handleSendMessage();
+      }
     }
   };
 
@@ -274,8 +406,8 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
             <button
               key={idx}
               onClick={() => handleSendMessage(chip.query)}
-              disabled={isLoading}
-              className="text-[11px] px-3 py-1 rounded-full bg-slate-800/70 hover:bg-cyan-500/15 text-slate-300 hover:text-cyan-300 border border-slate-700/60 hover:border-cyan-500/40 whitespace-nowrap transition-all shadow-sm active:scale-95"
+              disabled={isLoading || cooldownRemaining > 0}
+              className="text-[11px] px-3 py-1 rounded-full bg-slate-800/70 hover:bg-cyan-500/15 text-slate-300 hover:text-cyan-300 border border-slate-700/60 hover:border-cyan-500/40 whitespace-nowrap transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {chip.label}
             </button>
@@ -305,6 +437,8 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
                     className={`${
                       isUser
                         ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white rounded-2xl rounded-tr-sm p-3.5 px-4 shadow-md text-xs sm:text-sm leading-relaxed'
+                        : msg.status === 'error'
+                        ? 'bg-rose-950/40 border border-rose-500/40 rounded-2xl rounded-tl-sm p-4 sm:p-5 shadow-lg text-rose-200'
                         : 'bg-[#161b22]/90 border border-slate-800 rounded-2xl rounded-tl-sm p-4 sm:p-5 shadow-lg text-slate-200'
                     }`}
                   >
@@ -313,8 +447,26 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
                         {msg.content}
                       </div>
                     ) : (
-                      /* Clean Rich Gemini Markdown */
-                      <GeminiMarkdown content={msg.content} />
+                      <>
+                        <GeminiMarkdown content={msg.content} />
+                        {msg.status === 'error' && msg.isRetryable && (
+                          <div className="mt-3 pt-3 border-t border-rose-500/20 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-rose-400 flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {cooldownRemaining > 0 ? `Rate limited: wait ${cooldownRemaining}s` : 'Request failed'}
+                            </span>
+                            <button
+                              onClick={() => handleRetryForMessage(idx)}
+                              disabled={isLoading || cooldownRemaining > 0}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-100 bg-rose-500/25 hover:bg-rose-500/35 border border-rose-500/40 rounded-lg transition-all active:scale-95 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={cooldownRemaining > 0 ? `Cooldown active (${cooldownRemaining}s remaining)` : "Retry question"}
+                            >
+                              <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                              <span>{cooldownRemaining > 0 ? `Retry in ${cooldownRemaining}s` : 'Retry Question'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -440,15 +592,20 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Ask Gemini about ${destinationContext || 'customs, layovers, visas, or packing'}...`}
+              disabled={isLoading}
+              placeholder={
+                cooldownRemaining > 0
+                  ? `Rate limit cooldown active. Please wait ${cooldownRemaining}s before sending...`
+                  : `Ask Gemini about ${destinationContext || 'customs, layovers, visas, or packing'}...`
+              }
               rows={2}
-              className="w-full bg-transparent text-white text-xs sm:text-sm p-2.5 resize-none focus:outline-none placeholder-slate-500 font-sans"
+              className="w-full bg-transparent text-white text-xs sm:text-sm p-2.5 resize-none focus:outline-none placeholder-slate-500 font-sans disabled:opacity-50"
             />
             <button
               onClick={() => handleSendMessage()}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || cooldownRemaining > 0}
               className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-medium disabled:opacity-30 disabled:cursor-not-allowed transition-all transform active:scale-95 shadow-[0_0_12px_rgba(6,182,212,0.4)] flex-shrink-0"
-              title="Send message"
+              title={cooldownRemaining > 0 ? `Please wait ${cooldownRemaining}s cooldown` : "Send message"}
             >
               <Send className="w-4 h-4" />
             </button>

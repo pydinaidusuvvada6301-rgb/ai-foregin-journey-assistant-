@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import {
   TRAVEL_SYSTEM_PROMPT,
+  buildJourneyAssistantPrompt,
   ITINERARY_JSON_SCHEMA,
   VISA_CHECK_JSON_SCHEMA,
   DOCUMENT_ANALYSIS_SCHEMA,
@@ -29,14 +30,14 @@ export const ai = isGeminiConfigured ? new GoogleGenAI({ apiKey }) : null;
 
 // High-performance primary model with ample quota + resilient fallback cascade
 export const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest';
-export const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
+export const FALLBACK_MODELS = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 export const MODEL_NAME = PRIMARY_MODEL;
 
 console.log(`[VisaVoyage AI] Gemini Service Initialized. Key configured: ${isGeminiConfigured}, Primary model: ${MODEL_NAME}`);
 
 /**
  * Execute a Gemini AI operation with automatic multi-model fallback cascade,
- * bounded exponential backoff with jitter, and intelligent fast-failing on daily quota limits.
+ * bounded exponential backoff with jitter, and intelligent fast-failing on daily quota & rate limits.
  */
 async function executeWithGeminiCascade<T>(
   actionName: string,
@@ -64,10 +65,15 @@ async function executeWithGeminiCascade<T>(
       lastError = err;
       const classified = classifyGeminiError(err);
 
-      // Fast-fail immediately without cascading if project-wide daily quota is exhausted
-      // or billing is restricted, because all models share the same project quota and key.
-      if (classified.category === 'QUOTA_EXHAUSTED_DAILY' || classified.category === 'BILLING_RESTRICTION') {
-        console.warn(`[Gemini AI] ${actionName}: ${classified.message}. Halting multi-model cascade.`);
+      // Fast-fail immediately without cascading if project-wide daily quota is exhausted,
+      // billing is restricted, or transient rate limit (RPM/TPM) was reached after bounded backoff.
+      // All models share the same project/API key quota, so cascading on 429 floods the API.
+      if (
+        classified.category === 'QUOTA_EXHAUSTED_DAILY' ||
+        classified.category === 'BILLING_RESTRICTION' ||
+        classified.category === 'RATE_LIMIT_TRANSIENT'
+      ) {
+        console.warn(`[Gemini AI] ${actionName}: ${classified.message}. Halting multi-model cascade to prevent quota flooding.`);
         throw err;
       }
 
@@ -569,63 +575,46 @@ export async function chatWithGeminiAI(payload: {
   };
 }) {
   const { messages, context } = payload;
-  const systemInstruction = `You are VisaVoyage AI, functioning as the traveler's dedicated AI Foreign Journey Copilot powered by Google Gemini.
-Your responses must be accurate, practical, and tailored specifically to the traveler's destination and citizenship.
-FORMAT: Output your response in clean, beautifully structured GitHub-flavored Markdown with clean headers (###), bold bullet points, and tables where helpful. Do NOT output a JSON wrapper.
+  const systemInstruction = buildJourneyAssistantPrompt(context);
 
-CRITICAL OPERATIONAL INSTRUCTIONS:
-1. Immediate Direct Relevance:
-   - Analyze the customer's actual query and answer it directly in the very first sentence.
-   - Do NOT give generic filler, repeated intros, or vague generalities.
-2. Contextual Continuity:
-   - Maintain context across follow-up questions in the chat session.
-   - Tailor guidance to the currently active destination (${context?.destination || 'Global / Unspecified'}) and passport nationality (${context?.originCountry || 'Unspecified'}).
-3. Mandatory Clarifying Questions:
-   - If essential criteria are missing (such as citizenship/passport country, travel purpose, intended course level, duration of stay, or financial status), you MUST provide the best verified general baseline and then explicitly ask 1-3 targeted clarifying questions under "### ❓ Key Clarifications Needed".
-4. Differentiate Verified Information from AI Estimates:
-   - "### 🏛️ Verified Official Immigration Requirements": Present statutory border rules, official visa subclasses, mandatory documents (e.g. CoE, OSHC, I-20, CAS), and cite official government immigration portals (e.g., https://immi.homeaffairs.gov.au for Australia, https://travel.state.gov for US, https://www.gov.uk for UK, https://www.mofa.go.jp for Japan).
-   - "### 💡 Practical Guidance & AI Estimates": Label living costs, accommodation estimates, processing times, and tips as indicative guidance.
-5. Realistic & Trustworthy:
-   - Never promise visa approval or invent fees. Always point to official government fee schedules.
-   - If sensitive personal documents (passport numbers, SSN, bank credentials) appear, warn the traveler to keep them private.
-
-Context:
-- Traveler Origin / Passport Nationality: ${context?.originCountry || 'Unspecified (ask if visa rules depend on it)'}
-- Current / Planned Destination: ${context?.destination || 'Unspecified'}
-- Purpose of Travel: ${context?.travelPurpose || 'General Travel / Study / Work / Tourism'}
-- Visa Category: ${context?.visaType || 'Unspecified'}
-- Legal Residency: ${context?.residency || 'Unspecified'}
-- User Preferences: ${context?.preferences || 'None specified'}
-`;
-
-  if (ai) {
-    try {
-      return await executeWithGeminiCascade('chatWithCopilot', async (model) => {
-        // Prune and bound chat conversation history to avoid unbounded token accumulation
-        const prunedContents = pruneChatHistory(messages, 4);
-
-        const response = await ai.models.generateContent({
-          model,
-          contents: prunedContents,
-          config: {
-            systemInstruction,
-            temperature: 0.7
-          }
-        });
-
-        return {
-          reply: response.text || "I'm ready to assist with your journey. What destination or question would you like advice on?",
-          timestamp: new Date().toISOString()
-        };
-      });
-    } catch (err: any) {
-      console.error('[Gemini AI] Chat API call failed:', err?.message || err);
-    }
+  if (!ai) {
+    throw new Error('Gemini API is not configured on the backend server.');
   }
 
-  // Fallback intelligent responder
-  const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
-  return getFallbackChatResponse(lastMsg, context);
+  // Prune and sanitize chat history strictly: bound to recent 4 turns (8 messages)
+  // Ensures conversation starts with user and alternates turns
+  const sanitizedContents = pruneChatHistory(messages, 4);
+  if (sanitizedContents.length === 0) {
+    throw new Error('Conversation history must contain at least one valid user message.');
+  }
+
+  // SingleFlight deduplication: prevent concurrent duplicate calls for the identical prompt turn
+  const lastUserText = sanitizedContents[sanitizedContents.length - 1]?.parts[0]?.text || '';
+  const chatDedupeKey = `chat:${lastUserText.trim().toLowerCase()}:${sanitizedContents.length}:${context?.destination || ''}`;
+
+  return inFlightDeduplicator.run(chatDedupeKey, async () => {
+    return await executeWithGeminiCascade('chatWithCopilot', async (model) => {
+      const response = await ai.models.generateContent({
+        model,
+        contents: sanitizedContents,
+        config: {
+          systemInstruction,
+          temperature: 0.3,
+          maxOutputTokens: 1024
+        }
+      });
+
+      const reply = response.text?.trim();
+      if (!reply) {
+        throw new Error('Received an empty response from the Gemini model.');
+      }
+
+      return {
+        reply,
+        timestamp: new Date().toISOString()
+      };
+    });
+  });
 }
 
 /**
@@ -828,172 +817,7 @@ Return strict JSON matching the schema.
   });
 }
 
-function getFallbackChatResponse(query: string, context?: any) {
-  const dest = context?.destination || 'your destination';
-  const origin = context?.originCountry || 'your passport country';
-  const q = (query || '').toLowerCase();
-  const isAustralia = dest.toLowerCase().includes('australia') || q.includes('australia');
 
-  // 1. Study / Student Visa Inquiries
-  if (q.includes('study') || q.includes('student') || q.includes('university') || q.includes('course') || q.includes('degree')) {
-    if (isAustralia) {
-      return {
-        reply: `### 🎓 Studying in Australia: Student Visa (Subclass 500) Overview
-
-To study in Australia as an international student, you must apply for and be granted a **Student Visa (Subclass 500)** through the Australian Department of Home Affairs.
-
-### 🏛️ Verified Official Immigration Requirements
-* **Confirmation of Enrolment (CoE)**: You must have an active electronic CoE issued by a CRICOS-registered Australian education provider.
-* **Genuine Student (GS) Requirement**: Written responses demonstrating how your chosen course fits your academic background, career trajectory, and economic incentives to return home.
-* **Overseas Student Health Cover (OSHC)**: Continuous medical health insurance coverage valid from your date of arrival until visa expiration.
-* **Evidence of Financial Capacity**: Proof of sufficient funds covering tuition fees, travel costs, and minimum 12-month living expenses (**AUD $29,710**).
-* **English Language Proficiency**: Minimum test score in IELTS Academic (overall 6.0–6.5), PTE Academic (50+), or approved equivalent, unless passport exempt.
-* **Biometrics & Health Examination**: Panel physician chest X-ray and medical examination depending on your citizenship and travel history.
-
-### 💡 Practical Guidance & AI Estimates
-* **Living Costs**: Plan for roughly **AUD $2,000–$2,800/month** in major student hubs (Sydney, Melbourne) or **AUD $1,600–$2,100/month** in regional cities (Adelaide, Perth, Brisbane).
-* **Work Rights**: Student visa holders are currently permitted to work up to **48 hours per fortnight** during active study terms and unlimited hours during scheduled course breaks.
-* **Official Application Portal**: [Australian Department of Home Affairs — Student Visa (Subclass 500)](https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/student-500)
-
-### ❓ Key Clarifications Needed
-To give you exact document checklists and financial thresholds:
-1. What is your **country of citizenship / passport**? (Financial and English evidence requirements vary by Document Checklist Tool risk rating)
-2. What **course level** are you enrolling in (Undergraduate, Postgraduate Research, VET / Vocational, or ELICOS language)?
-3. Are you applying **offshore** (from your home country) or **onshore** (currently within Australia)?`,
-        timestamp: new Date().toISOString()
-      };
-    }
-
-    return {
-      reply: `### 🎓 International Study Visa Guidelines for ${dest}
-
-### 🏛️ Verified Official Immigration Requirements
-* **Official Acceptance Letter / CoE**: Unconditional acceptance from an accredited national higher education institution.
-* **Student Health Insurance**: Compulsory international student medical cover covering your entire stay.
-* **Financial Solvency Proof**: Bank statements or certified sponsorship letters proving sufficient funds for tuition and living maintenance.
-* **Academic Credentials & Language**: Certified transcripts and recognized language test results (IELTS, TOEFL, or local national language test).
-* **Clear Police Records**: Background verification and biometric clearance.
-
-### 💡 Practical Guidance & AI Estimates
-* **Tuition & Living**: Living costs typically range from **$900–$2,200 USD/month** depending on metropolitan vs. regional university locations.
-* **Part-time Employment**: Many countries permit international students to work 20 hours/week during academic terms.
-
-### ❓ Key Clarifications Needed
-1. What is your **passport nationality**?
-2. Which university or institution in **${dest}** are you attending?
-3. What is your planned **intake date** and study duration?`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 2. Document & Application Preparation Checklists
-  if (q.includes('document') || q.includes('requirement') || q.includes('checklist') || q.includes('paperwork')) {
-    return {
-      reply: `### 📑 Comprehensive Travel & Visa Document Checklist for ${dest}
-
-### 🏛️ Verified Official Border & Consular Protocols
-* **Passport**: Minimum **6 months remaining validity** beyond intended departure date, with at least 2 consecutive blank pages.
-* **Financial Self-Sufficiency**: Last 3 to 6 months of original bank statements stamped by your financial institution.
-* **Ties to Home Country**: Employment verification letter with approved leave dates, business registration, or property ownership documents.
-* **Travel Itinerary**: Confirmed return or onward flight itinerary (do not buy non-refundable tickets before visa issuance).
-* **Accommodation Voucher**: Confirmed hotel reservations or formal invitation letter with host's identity copy.
-* **Travel Medical Insurance**: International medical policy with minimum coverage (e.g. €30,000 for Schengen countries).
-
-### 💡 Practical Guidance & AI Estimates
-* **Certified Translations**: Any documents not in English or the destination's official language must be accompanied by an official certified translation.
-* **Appointment Lead Times**: Book consular biometric appointments 6 to 10 weeks in advance during peak travel seasons.
-
-### ❓ Key Clarifications Needed
-1. What is your **passport country of citizenship**?
-2. What is your **primary purpose of journey** (Tourism, Business, Study, or Employment)?`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 3. Costs, Budget & Accommodation Inquiries
-  if (q.includes('cost') || q.includes('budget') || q.includes('expense') || q.includes('price') || q.includes('hotel') || q.includes('accommodation')) {
-    return {
-      reply: `### 💰 Budget & Cost Planning Breakdown for ${dest}
-
-### 💡 Practical Guidance & AI Estimates
-| Expense Category | Budget Traveler | Moderate / Comfortable | Luxury / High-End |
-| :--- | :--- | :--- | :--- |
-| **Accommodation / Night** | $35 – $70 USD | $110 – $220 USD | $350+ USD |
-| **Daily Dining & Groceries** | $18 – $35 USD | $45 – $85 USD | $150+ USD |
-| **Public Transit & Taxis** | $6 – $12 USD | $18 – $35 USD | $60+ USD |
-| **Activities & Sightseeing** | $10 – $25 USD | $30 – $60 USD | $100+ USD |
-| **Total Daily Estimate** | **~$70 – $140 / day** | **~$200 – $400 / day** | **~$660+ / day** |
-
-* **Local Currency**: Use the built-in **Currency Converter** tool to calculate live exchange rates against your home currency.
-* **Card Payments vs. Cash**: Most urban hubs accept contactless Visa/Mastercard; carry 10–15% in cash for local markets and small merchants.
-
-### ❓ Key Clarifications Needed
-1. How many **days or weeks** are you planning to travel?
-2. What is your preferred **travel style** (Backpacker, Mid-range Comfort, or Luxury)?`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 4. Over-the-counter & Banned Medications
-  if (q.includes('med') || q.includes('otc') || q.includes('drug') || q.includes('pill')) {
-    return {
-      reply: `### 💊 Medication & OTC Regulations for ${dest}\n\nMany countries enforce strict import limits on common over-the-counter and prescription pharmaceuticals:\n\n* **Restricted Active Ingredients**: Decongestants containing pseudoephedrine/ephedrine, strong analgesics with codeine, and psychotropics (including ADHD medication) are heavily regulated or banned in many regions.\n* **Doctor's Prescription**: Always carry an official physician's prescription letter in English detailing your full name, dosage, and medical necessity.\n* **Original Packaging**: Retain all tablets and liquids in their original labeled manufacturer pharmacy containers.\n* **Supply Limits**: Do not carry more than a 30-day personal supply without advance written permit from the destination's health ministry.\n\n> **Important Advisory**: Never transport undeclared restricted medications in checked baggage. Always carry them in your personal hand luggage with documentation ready for customs inspection.`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 5. Layover & Transit Visa
-  if (q.includes('layover') || q.includes('transit') || q.includes('transfer')) {
-    return {
-      reply: `### ⏳ International Layover & Transit Visa Protocols\n\nWhen connecting through international airports en route to ${dest}, transit rules vary based on booking structure:\n\n| Connection Type | Transit Visa Required? | Key Border Condition |\n| :--- | :--- | :--- |\n| **Airside Transit (< 12–24h)** | Typically No | Must remain within the sterile international transit terminal without clearing immigration. |\n| **Self-Transfer / Separate Tickets** | Usually Yes | You must pass border control to claim baggage and re-check with your next airline. |\n| **Airport Change / Overnight Stay** | Yes (Transit / Tourist Visa) | Required when transferring between different metropolitan airports or staying at a city hotel. |\n\n* **Luggage Interlining**: Verify at your origin airport check-in desk whether your baggage tags show your final arrival airport.\n* **Schengen Transit**: Two consecutive connecting stops within Europe's Schengen zone are classified as internal travel and require a valid Schengen visa.`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 6. Plugs and Voltage
-  if (q.includes('plug') || q.includes('power') || q.includes('voltage') || q.includes('socket')) {
-    return {
-      reply: `### 🔌 Electrical & Power Specifications for ${dest}\n\n* **Plug Types**: Common international configurations include Type C/E/F (European two-pin), Type G (UK rectangular three-pin), or Type A/B (US two-pin). Carry a **multi-region universal adapter** with built-in USB-C Power Delivery ports.\n* **Standard Voltage**: Verify whether local power grids operate on **220V–240V at 50Hz** (Europe, Asia, UK, Australia) versus **110V–120V at 60Hz** (US, Canada, Japan).\n* **Device Compatibility**: Laptops, phones, and modern camera batteries are dual-voltage (100V–240V). High-wattage heating devices (hair straighteners, hair dryers) require a dedicated step-down converter.\n\n> **Traveler Tip**: Carry all high-capacity portable power banks (under 100Wh / 27,000mAh) strictly in your carry-on luggage due to international airline cabin regulations.`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 7. General Visa & Entry
-  if (q.includes('visa') || q.includes('passport') || q.includes('entry') || q.includes('immigration')) {
-    return {
-      reply: `### 🛂 Sovereign Visa & Entry Clearance for ${dest}
-
-### 🏛️ Verified Official Immigration Protocols
-* **Passport Validity Window**: Ensure your passport has at least **6 months validity** remaining beyond your scheduled arrival date, alongside at least **2 consecutive blank stamp pages**.
-* **Mandatory Entry Documentation**:
-  * Confirmed return or onward international ticket to another country.
-  * Proof of verified accommodation (hotel booking voucher or host address).
-  * Proof of sufficient financial funds for your planned length of stay.
-* **Official Immigration Portals**: Always submit visa applications directly through official government websites or embassies rather than unofficial third-party visa services.
-
-### 💡 Practical Guidance & AI Estimates
-* **Processing Timelines**: Allow 10 to 20 working days for consular visas, or 48 to 72 hours for eVisa / Electronic Travel Authorizations.
-
-### ❓ Key Clarifications Needed
-1. What is your **country of passport / citizenship**?
-2. What is your **travel purpose** (Tourism, Business, Work, Study, or Transit)?`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // 8. Emergency and Safety
-  if (q.includes('emergency') || q.includes('police') || q.includes('hospital') || q.includes('scam')) {
-    return {
-      reply: `### 🚨 Emergency Protocols & Tourist Safety in ${dest}\n\n| Service Hub | Primary Contact | Recommended Protocol |\n| :--- | :--- | :--- |\n| **Emergency Dispatch** | 112 / 911 / Local Hub | State your GPS coordinates clearly and request English-speaking support. |\n| **Tourist Police** | Regional Tourist Hotline | Report non-urgent issues, theft, extortion, or taxi disputes. |\n| **Consulate / Embassy** | Diplomatic Mission Hotline | Contact immediately in the event of lost passports or detention. |\n\n* **Emergency Redundancy**: Keep a physical photocopy of your passport's bio-page in your hotel room safe and keep an encrypted digital copy on secure cloud storage.\n* **Common Scams**: Be alert to unmetered airport taxis, distraction theft in crowded metro terminals, and friendly stranger invitations to private tea or drinks ceremonies.`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  return {
-    reply: `### ✈️ Key Journey Essentials for ${dest}\n\nHere are actionable recommendations to ensure a smooth, worry-free trip:\n\n1. **Mobile Connectivity**: Purchase an eSIM online before departure for instant high-speed data upon landing.\n2. **Local Transit Pass**: Pick up a rechargeable contactless transit card or mobile transit pass at the airport terminal for cost-efficient metro and rail travel.\n3. **Financial Security**: Travel with at least two international payment cards with 0% foreign transaction fees, plus nominal local currency cash for small vendors.\n4. **Customs & Health**: Keep all prescription medications in their original labeled containers with a matching physician's note.\n\n*What other questions can I answer about your journey to **${dest}**?*`,
-    timestamp: new Date().toISOString()
-  };
-}
 
 function getFallbackEmergencyCard(destination: string) {
   return {
